@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 210 33% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 211 86% 55%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 199 89% 48%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 214 31% 91%;
+  --input: 214 31% 91%;
+  --ring: 211 86% 55%;
+  --radius: 0.75rem;
+}
+
+* {
+  box-sizing: border-box;
+  border-color: hsl(var(--border));
+}
+
+body {
+  margin: 0;
+  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  min-height: 100vh;
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+  line-height: 1.5;
+  background-image: radial-gradient(circle at 0% 0%, rgba(125, 211, 252, 0.2), transparent 35%),
+    radial-gradient(circle at 100% 0%, rgba(42, 140, 247, 0.2), transparent 30%),
+    linear-gradient(180deg, #f8fbff 0%, #eff6ff 40%, #f8fafc 100%);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.landing-bg {
+  background-image: radial-gradient(circle at 8% 5%, rgba(56, 189, 248, 0.22), transparent 32%),
+    radial-gradient(circle at 85% 8%, rgba(42, 140, 247, 0.2), transparent 40%),
+    linear-gradient(130deg, #f8fbff 0%, #edf4ff 55%, #e2ecfb 100%);
+}
