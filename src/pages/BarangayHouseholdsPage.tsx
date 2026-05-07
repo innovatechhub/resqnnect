@@ -1,13 +1,29 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import QRCode from 'qrcode';
+import { Download, MapPinned, RefreshCw } from 'lucide-react';
 
 import { HOUSEHOLD_STATUSES } from '../constants/households';
+import { LocationPickerDialog } from '../components/system/LocationPickerDialog';
 import { SectionHeader } from '../components/system/SectionHeader';
 import { Alert, AlertDescription } from '../components/ui/alert';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { ConfirmDialog } from '../components/ui/confirm-dialog';
+import { DataTablePagination, DataTableToolbar } from '../components/ui/data-table-controls';
+import { Dialog } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select } from '../components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '../components/ui/table';
 import { Textarea } from '../components/ui/textarea';
 import { useAuth } from '../features/auth/useAuth';
 import {
@@ -35,11 +51,108 @@ import {
   type HouseholdMemberRecord,
   type HouseholdRecord,
 } from '../services/supabase/households';
+import { getPageCount, paginateItems, sortByKey, type SortDirection } from '../lib/table';
 
 const errorClass = 'mt-1 text-xs text-destructive';
+const ID_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const MAX_CREATE_RETRIES = 5;
+const RELATIONSHIP_OPTIONS = [
+  'Head',
+  'Spouse',
+  'Child',
+  'Parent',
+  'Sibling',
+  'Grandparent',
+  'Grandchild',
+  'Relative',
+  'Boarder',
+  'Helper',
+  'Other',
+] as const;
+
+function randomIdSegment(length: number): string {
+  const cryptoObject = globalThis.crypto;
+  if (cryptoObject && 'getRandomValues' in cryptoObject) {
+    const bytes = new Uint8Array(length);
+    cryptoObject.getRandomValues(bytes);
+    return Array.from(bytes)
+      .map((value) => ID_CHARS[value % ID_CHARS.length])
+      .join('');
+  }
+
+  return Array.from({ length }, () => ID_CHARS[Math.floor(Math.random() * ID_CHARS.length)]).join('');
+}
+
+function buildAutoHouseholdIdentifiers(): Pick<HouseholdFormValues, 'householdCode' | 'qrCode'> {
+  const now = new Date();
+  const dateStamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const householdCode = `HH-${dateStamp}-${randomIdSegment(6)}`;
+  const qrCode = `RESQ-HH-${dateStamp}-${randomIdSegment(12)}`;
+
+  return { householdCode, qrCode };
+}
+
+function toErrorMessage(error: unknown, fallbackMessage: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (error && typeof error === 'object') {
+    const candidate = error as { message?: unknown; details?: unknown; hint?: unknown };
+    const parts = [candidate.message, candidate.details, candidate.hint].filter(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0,
+    );
+    if (parts.length > 0) {
+      return parts.join(' ');
+    }
+  }
+
+  return fallbackMessage;
+}
+
+function isHouseholdIdentifierConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
+  if (candidate.code !== '23505') {
+    return false;
+  }
+
+  const combinedText = `${typeof candidate.message === 'string' ? candidate.message : ''} ${
+    typeof candidate.details === 'string' ? candidate.details : ''
+  }`.toLowerCase();
+
+  return combinedText.includes('household_code') || combinedText.includes('qr_code');
+}
+
+function parseOptionalNumber(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sanitizeFileName(value: string): string {
+  return value.replace(/[^a-z0-9-_]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
 
 function formatStatus(status: HouseholdRecord['status']): string {
   return status === 'active' ? 'Active' : status === 'evacuated' ? 'Evacuated' : 'Inactive';
+}
+
+function statusBadgeClass(status: HouseholdRecord['status']): string {
+  if (status === 'active') {
+    return 'bg-emerald-100 text-emerald-800';
+  }
+  if (status === 'evacuated') {
+    return 'bg-amber-100 text-amber-800';
+  }
+  return 'bg-muted text-muted-foreground';
 }
 
 function toHouseholdFormValues(item: HouseholdRecord): HouseholdFormValues {
@@ -72,12 +185,17 @@ export function BarangayHouseholdsPage() {
   const [householdsError, setHouseholdsError] = useState<string | null>(null);
   const [isLoadingHouseholds, setIsLoadingHouseholds] = useState(false);
   const [selectedHouseholdId, setSelectedHouseholdId] = useState<string | null>(null);
+  const [householdSearch, setHouseholdSearch] = useState('');
+  const [householdSortDirection, setHouseholdSortDirection] = useState<SortDirection>('asc');
+  const [householdPage, setHouseholdPage] = useState(0);
 
   const [householdForm, setHouseholdForm] = useState(INITIAL_HOUSEHOLD_FORM_VALUES);
   const [householdFormErrors, setHouseholdFormErrors] = useState<HouseholdFormErrors>({});
   const [editingHouseholdId, setEditingHouseholdId] = useState<string | null>(null);
+  const [isHouseholdDialogOpen, setIsHouseholdDialogOpen] = useState(false);
   const [isSubmittingHousehold, setIsSubmittingHousehold] = useState(false);
   const [householdActionError, setHouseholdActionError] = useState<string | null>(null);
+  const [isLocationPickerOpen, setIsLocationPickerOpen] = useState(false);
 
   const [members, setMembers] = useState<HouseholdMemberRecord[]>([]);
   const [membersError, setMembersError] = useState<string | null>(null);
@@ -85,14 +203,50 @@ export function BarangayHouseholdsPage() {
   const [memberForm, setMemberForm] = useState(INITIAL_MEMBER_FORM_VALUES);
   const [memberFormErrors, setMemberFormErrors] = useState<HouseholdMemberFormErrors>({});
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [isMemberDialogOpen, setIsMemberDialogOpen] = useState(false);
   const [isSubmittingMember, setIsSubmittingMember] = useState(false);
   const [memberActionError, setMemberActionError] = useState<string | null>(null);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberSortDirection, setMemberSortDirection] = useState<SortDirection>('asc');
+  const [memberPage, setMemberPage] = useState(0);
+  const [pendingDeleteHousehold, setPendingDeleteHousehold] = useState<HouseholdRecord | null>(null);
+  const [pendingDeleteMember, setPendingDeleteMember] = useState<HouseholdMemberRecord | null>(null);
+  const pageSize = 8;
 
   const barangayId = auth.profile?.barangayId ?? null;
   const selectedHousehold = useMemo(
     () => households.find((item) => item.id === selectedHouseholdId) ?? null,
     [households, selectedHouseholdId],
   );
+  const filteredHouseholds = useMemo(() => {
+    const query = householdSearch.trim().toLowerCase();
+    const scoped = query
+      ? households.filter((item) =>
+          [item.householdCode, item.addressText, item.qrCode].some((value) =>
+            (value ?? '').toLowerCase().includes(query),
+          ),
+        )
+      : households;
+    return sortByKey(scoped, (item) => item.addressText, householdSortDirection);
+  }, [householdSearch, householdSortDirection, households]);
+  const householdPageCount = getPageCount(filteredHouseholds.length, pageSize);
+  const pagedHouseholds = useMemo(
+    () => paginateItems(filteredHouseholds, householdPage, pageSize),
+    [filteredHouseholds, householdPage],
+  );
+  const filteredMembers = useMemo(() => {
+    const query = memberSearch.trim().toLowerCase();
+    const scoped = query
+      ? members.filter((item) =>
+          [item.fullName, item.relationshipToHead, item.sex, item.vulnerabilityNotes].some((value) =>
+            (value ?? '').toLowerCase().includes(query),
+          ),
+        )
+      : members;
+    return sortByKey(scoped, (item) => item.fullName, memberSortDirection);
+  }, [memberSearch, memberSortDirection, members]);
+  const memberPageCount = getPageCount(filteredMembers.length, pageSize);
+  const pagedMembers = useMemo(() => paginateItems(filteredMembers, memberPage, pageSize), [filteredMembers, memberPage]);
 
   const refreshHouseholds = useCallback(
     async (preferredId?: string) => {
@@ -153,10 +307,46 @@ export function BarangayHouseholdsPage() {
     }
     void refreshMembers(selectedHouseholdId);
   }, [refreshMembers, selectedHouseholdId]);
+  useEffect(() => {
+    setHouseholdPage(0);
+  }, [householdSearch, householdSortDirection]);
+  useEffect(() => {
+    setMemberPage(0);
+  }, [memberSearch, memberSortDirection, selectedHouseholdId]);
+
+  function openCreateHouseholdDialog() {
+    const identifiers = buildAutoHouseholdIdentifiers();
+    setEditingHouseholdId(null);
+    setHouseholdForm({
+      ...INITIAL_HOUSEHOLD_FORM_VALUES,
+      householdCode: identifiers.householdCode,
+      qrCode: identifiers.qrCode,
+    });
+    setHouseholdFormErrors({});
+    setHouseholdActionError(null);
+    setIsHouseholdDialogOpen(true);
+  }
+
+  function openEditHouseholdDialog(item: HouseholdRecord) {
+    setEditingHouseholdId(item.id);
+    setHouseholdForm(toHouseholdFormValues(item));
+    setHouseholdFormErrors({});
+    setHouseholdActionError(null);
+    setIsHouseholdDialogOpen(true);
+  }
 
   async function onHouseholdSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = validateHouseholdForm(householdForm);
+    const needsAutoIdentifiers = !householdForm.householdCode.trim() || !householdForm.qrCode.trim();
+    const workingForm = needsAutoIdentifiers
+      ? { ...householdForm, ...buildAutoHouseholdIdentifiers() }
+      : householdForm;
+
+    if (needsAutoIdentifiers) {
+      setHouseholdForm(workingForm);
+    }
+
+    const result = validateHouseholdForm(workingForm);
     setHouseholdFormErrors(result.errors);
     setHouseholdActionError(null);
     if (!result.normalized) {
@@ -173,33 +363,112 @@ export function BarangayHouseholdsPage() {
 
     setIsSubmittingHousehold(true);
     try {
-      const saved = editingHouseholdId
-        ? await updateHousehold(client, editingHouseholdId, result.normalized)
-        : await createHousehold(client, { ...result.normalized, barangayId });
+      let saved: HouseholdRecord | null = null;
+
+      if (editingHouseholdId) {
+        saved = await updateHousehold(client, editingHouseholdId, result.normalized);
+      } else {
+        const baseInput = { ...result.normalized, barangayId };
+        let pendingInput = baseInput;
+
+        for (let attempt = 0; attempt < MAX_CREATE_RETRIES; attempt += 1) {
+          try {
+            saved = await createHousehold(client, pendingInput);
+            break;
+          } catch (error) {
+            const canRetry = isHouseholdIdentifierConflict(error) && attempt < MAX_CREATE_RETRIES - 1;
+            if (!canRetry) {
+              throw error;
+            }
+
+            const regenerated = buildAutoHouseholdIdentifiers();
+            pendingInput = {
+              ...baseInput,
+              householdCode: regenerated.householdCode,
+              qrCode: regenerated.qrCode,
+            };
+            setHouseholdForm((current) => ({
+              ...current,
+              householdCode: regenerated.householdCode,
+              qrCode: regenerated.qrCode,
+            }));
+          }
+        }
+      }
+
+      if (!saved) {
+        throw new Error('Household save did not return a record.');
+      }
+
+      setIsHouseholdDialogOpen(false);
       setHouseholdForm(INITIAL_HOUSEHOLD_FORM_VALUES);
-      setHouseholdFormErrors({});
       setEditingHouseholdId(null);
       await refreshHouseholds(saved.id);
     } catch (error) {
-      setHouseholdActionError(error instanceof Error ? error.message : 'Failed to save household.');
+      const message = toErrorMessage(error, 'Failed to save household.');
+      if (message.toLowerCase().includes('row-level security policy for table "households"')) {
+        setHouseholdActionError(
+          'Household create is blocked by database policy. Run the latest supabase/sql/002_phase3_rls.sql in Supabase SQL Editor, then sign out and sign in again.',
+        );
+      } else {
+        setHouseholdActionError(message);
+      }
     } finally {
       setIsSubmittingHousehold(false);
     }
   }
 
   async function onDeleteHousehold(item: HouseholdRecord) {
-    if (!client || !window.confirm(`Delete household "${item.addressText}" and all members?`)) {
+    if (!client) {
       return;
     }
     try {
       await deleteHousehold(client, item.id);
-      if (editingHouseholdId === item.id) {
-        setHouseholdForm(INITIAL_HOUSEHOLD_FORM_VALUES);
-        setEditingHouseholdId(null);
-      }
+      setPendingDeleteHousehold(null);
       await refreshHouseholds();
     } catch (error) {
-      setHouseholdActionError(error instanceof Error ? error.message : 'Failed to delete household.');
+      setHouseholdActionError(toErrorMessage(error, 'Failed to delete household.'));
+    }
+  }
+
+  function openCreateMemberDialog() {
+    setEditingMemberId(null);
+    setMemberForm(INITIAL_MEMBER_FORM_VALUES);
+    setMemberFormErrors({});
+    setMemberActionError(null);
+    setIsMemberDialogOpen(true);
+  }
+
+  function openEditMemberDialog(item: HouseholdMemberRecord) {
+    setEditingMemberId(item.id);
+    setMemberForm(toMemberFormValues(item));
+    setMemberFormErrors({});
+    setMemberActionError(null);
+    setIsMemberDialogOpen(true);
+  }
+
+  async function onDownloadQr(item: HouseholdRecord) {
+    const qrValue = (item.qrCode ?? '').trim();
+    if (!qrValue) {
+      setHouseholdActionError('This household has no QR value to download yet.');
+      return;
+    }
+
+    try {
+      const dataUrl = await QRCode.toDataURL(qrValue, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        width: 720,
+      });
+      const link = document.createElement('a');
+      const baseName = sanitizeFileName(item.householdCode ?? item.id) || item.id;
+      link.href = dataUrl;
+      link.download = `${baseName}-qr.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      setHouseholdActionError(toErrorMessage(error, 'Failed to generate downloadable QR image.'));
     }
   }
 
@@ -218,32 +487,29 @@ export function BarangayHouseholdsPage() {
       } else {
         await createHouseholdMember(client, { ...result.normalized, householdId: selectedHouseholdId });
       }
+      setIsMemberDialogOpen(false);
       setMemberForm(INITIAL_MEMBER_FORM_VALUES);
-      setMemberFormErrors({});
       setEditingMemberId(null);
       await refreshMembers(selectedHouseholdId);
     } catch (error) {
-      setMemberActionError(error instanceof Error ? error.message : 'Failed to save member.');
+      setMemberActionError(toErrorMessage(error, 'Failed to save member.'));
     } finally {
       setIsSubmittingMember(false);
     }
   }
 
   async function onDeleteMember(item: HouseholdMemberRecord) {
-    if (!client || !window.confirm(`Delete member "${item.fullName}"?`)) {
+    if (!client) {
       return;
     }
     try {
       await deleteHouseholdMember(client, item.id);
-      if (editingMemberId === item.id) {
-        setMemberForm(INITIAL_MEMBER_FORM_VALUES);
-        setEditingMemberId(null);
-      }
+      setPendingDeleteMember(null);
       if (selectedHouseholdId) {
         await refreshMembers(selectedHouseholdId);
       }
     } catch (error) {
-      setMemberActionError(error instanceof Error ? error.message : 'Failed to delete member.');
+      setMemberActionError(toErrorMessage(error, 'Failed to delete member.'));
     }
   }
 
@@ -260,7 +526,7 @@ export function BarangayHouseholdsPage() {
       <SectionHeader
         missionTag="Mission 5"
         title="Household Registry"
-        summary="Barangay-scoped household/member CRUD with validation."
+        summary="Barangay-scoped household and family-member records with searchable tabular workflow."
       />
 
       {auth.role === 'barangay_official' && !barangayId ? (
@@ -274,83 +540,274 @@ export function BarangayHouseholdsPage() {
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card className="bg-muted/35">
-          <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
+      <Card className="bg-muted/35">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base">Households</CardTitle>
-            <Button type="button" variant="outline" size="sm" onClick={() => void refreshHouseholds()}>
-              Refresh
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => void refreshHouseholds()}>
+                Refresh
+              </Button>
+              <Button type="button" size="sm" onClick={openCreateHouseholdDialog}>
+                New Household
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTableToolbar
+            value={householdSearch}
+            onValueChange={setHouseholdSearch}
+            placeholder="Search household code, address, or QR"
+            summary={`${filteredHouseholds.length} household records`}
+          />
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <tr>
+                  <TableHeaderCell>
+                    <button type="button" onClick={() => setHouseholdSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
+                      Household / Address
+                    </button>
+                  </TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>Coordinates</TableHeaderCell>
+                  <TableHeaderCell>QR Value</TableHeaderCell>
+                  <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+                </tr>
+              </TableHead>
+              <TableBody>
+                {pagedHouseholds.map((item) => (
+                  <TableRow key={item.id} className={selectedHouseholdId === item.id ? 'bg-primary/10' : undefined}>
+                    <TableCell>
+                      <p className="font-medium">{item.householdCode ?? 'Uncoded'}</p>
+                      <p className="text-xs text-muted-foreground">{item.addressText}</p>
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={statusBadgeClass(item.status)}>{formatStatus(item.status)}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {item.latitude !== null && item.longitude !== null
+                        ? `${item.latitude.toFixed(5)}, ${item.longitude.toFixed(5)}`
+                        : 'N/A'}
+                    </TableCell>
+                    <TableCell>
+                      {item.qrCode ? (
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs">{item.qrCode}</code>
+                          <Button type="button" variant="outline" size="sm" onClick={() => void onDownloadQr(item)}>
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not generated</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => setSelectedHouseholdId(item.id)}>
+                          View
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => openEditHouseholdDialog(item)}>
+                          Edit
+                        </Button>
+                        <Button type="button" variant="destructive" size="sm" onClick={() => setPendingDeleteHousehold(item)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {!isLoadingHouseholds && households.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">No households yet.</p>
+          ) : null}
+          <div className="mt-3">
+            <DataTablePagination
+              page={householdPage}
+              pageCount={householdPageCount}
+              totalCount={filteredHouseholds.length}
+              pageSize={pageSize}
+              onPageChange={setHouseholdPage}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">
+              Family Members {selectedHousehold ? `- ${selectedHousehold.householdCode ?? selectedHousehold.addressText}` : ''}
+            </CardTitle>
+            <Button type="button" size="sm" disabled={!selectedHouseholdId} onClick={openCreateMemberDialog}>
+              New Member
             </Button>
           </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-          {isLoadingHouseholds ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
-          <div className="space-y-2">
-            {households.map((item) => (
-              <div
-                key={item.id}
-                className={`rounded-lg border p-2 ${
-                  selectedHouseholdId === item.id
-                    ? 'border-primary/40 bg-primary/10'
-                    : 'border-border bg-card'
-                }`}
-              >
-                <button type="button" onClick={() => setSelectedHouseholdId(item.id)} className="w-full text-left">
-                  <p className="text-sm font-semibold text-foreground">{item.addressText}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.householdCode ?? 'N/A'} | {formatStatus(item.status)}
-                  </p>
-                </button>
-                <div className="mt-2 flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setEditingHouseholdId(item.id);
-                      setHouseholdForm(toHouseholdFormValues(item));
-                      setHouseholdFormErrors({});
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  <Button type="button" variant="destructive" size="sm" onClick={() => void onDeleteHousehold(item)}>
-                    Delete
+        </CardHeader>
+        <CardContent>
+          {selectedHousehold ? (
+            <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Selected Household QR</p>
+              {selectedHousehold.qrCode ? (
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="text-xs">{selectedHousehold.qrCode}</code>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void onDownloadQr(selectedHousehold)}>
+                    <Download className="mr-1 h-3.5 w-3.5" />
+                    Download QR
                   </Button>
                 </div>
-              </div>
-            ))}
-            {!isLoadingHouseholds && households.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No households yet.</p>
-            ) : null}
-          </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">{editingHouseholdId ? 'Edit Household' : 'Create Household'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-          <form className="mt-3 space-y-2" onSubmit={onHouseholdSubmit} noValidate>
-            <Textarea
-              value={householdForm.addressText}
-              onChange={(event) => setHouseholdForm((previous) => ({ ...previous, addressText: event.target.value }))}
-              rows={2}
-              placeholder="Address"
-            />
-            {householdFormErrors.addressText ? <p className={errorClass}>{householdFormErrors.addressText}</p> : null}
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Input
-                value={householdForm.householdCode}
-                onChange={(event) => setHouseholdForm((previous) => ({ ...previous, householdCode: event.target.value }))}
-                placeholder="Household code"
+              ) : (
+                <p className="text-xs text-muted-foreground">No QR value assigned yet.</p>
+              )}
+            </div>
+          ) : null}
+          {membersError ? (
+            <Alert variant="destructive" className="mb-3">
+              <AlertDescription>{membersError}</AlertDescription>
+            </Alert>
+          ) : null}
+          <DataTableToolbar
+            value={memberSearch}
+            onValueChange={setMemberSearch}
+            placeholder="Search name, relationship, sex, or notes"
+            summary={`${filteredMembers.length} family members`}
+            className="mb-3"
+          />
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <tr>
+                  <TableHeaderCell>
+                    <button type="button" onClick={() => setMemberSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
+                      Name
+                    </button>
+                  </TableHeaderCell>
+                  <TableHeaderCell>Relationship</TableHeaderCell>
+                  <TableHeaderCell>Birth Date</TableHeaderCell>
+                  <TableHeaderCell>Sex</TableHeaderCell>
+                  <TableHeaderCell>Vulnerability</TableHeaderCell>
+                  <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+                </tr>
+              </TableHead>
+              <TableBody>
+                {pagedMembers.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="font-medium">{item.fullName}</TableCell>
+                    <TableCell>{item.relationshipToHead ?? 'N/A'}</TableCell>
+                    <TableCell>{item.birthDate ?? 'N/A'}</TableCell>
+                    <TableCell>{item.sex ?? 'N/A'}</TableCell>
+                    <TableCell>
+                      {item.isVulnerable ? (
+                        <span className="text-xs font-semibold text-amber-800">Priority</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => openEditMemberDialog(item)}>
+                          Edit
+                        </Button>
+                        <Button type="button" variant="destructive" size="sm" onClick={() => setPendingDeleteMember(item)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {!isLoadingMembers && selectedHouseholdId && members.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">No members yet for this household.</p>
+          ) : null}
+          {!selectedHouseholdId ? <p className="mt-3 text-sm text-muted-foreground">Select a household first.</p> : null}
+          {selectedHouseholdId ? (
+            <div className="mt-3">
+              <DataTablePagination
+                page={memberPage}
+                pageCount={memberPageCount}
+                totalCount={filteredMembers.length}
+                pageSize={pageSize}
+                onPageChange={setMemberPage}
               />
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Dialog
+        open={isHouseholdDialogOpen}
+        onOpenChange={setIsHouseholdDialogOpen}
+        title={editingHouseholdId ? 'Update Household' : 'Create Household'}
+        description="Maintain household core profile and geolocation."
+        footer={
+          <Button type="submit" form="household-form" disabled={isSubmittingHousehold || !barangayId}>
+            {isSubmittingHousehold ? 'Saving...' : editingHouseholdId ? 'Update' : 'Create'}
+          </Button>
+        }
+      >
+        <form id="household-form" className="space-y-3" onSubmit={onHouseholdSubmit} noValidate>
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Address</Label>
+            <div className="relative">
+              <Textarea
+                value={householdForm.addressText}
+                onChange={(event) => setHouseholdForm((previous) => ({ ...previous, addressText: event.target.value }))}
+                rows={2}
+                placeholder="Street, purok, barangay, municipality"
+                className="pr-12"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                onClick={() => setIsLocationPickerOpen(true)}
+                title="Pinpoint location on map"
+                className="absolute bottom-2 right-2 h-7 w-7 rounded-full bg-emerald-600 text-white hover:bg-emerald-700"
+              >
+                <MapPinned className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            {householdFormErrors.addressText ? <p className={errorClass}>{householdFormErrors.addressText}</p> : null}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Household Code</Label>
+              <div className="flex gap-2">
+                <Input value={householdForm.householdCode} readOnly />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  title="Generate new household code and QR value"
+                  onClick={() => {
+                    const identifiers = buildAutoHouseholdIdentifiers();
+                    setHouseholdForm((previous) => ({
+                      ...previous,
+                      householdCode: identifiers.householdCode,
+                      qrCode: identifiers.qrCode,
+                    }));
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Auto-generated. Use refresh to regenerate.</p>
+              {householdFormErrors.householdCode ? <p className={errorClass}>{householdFormErrors.householdCode}</p> : null}
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Status</Label>
               <Select
                 value={householdForm.status}
                 onChange={(event) =>
-                  setHouseholdForm((previous) => ({ ...previous, status: event.target.value as HouseholdFormValues['status'] }))
+                  setHouseholdForm((previous) => ({
+                    ...previous,
+                    status: event.target.value as HouseholdFormValues['status'],
+                  }))
                 }
               >
                 {HOUSEHOLD_STATUSES.map((status) => (
@@ -360,182 +817,177 @@ export function BarangayHouseholdsPage() {
                 ))}
               </Select>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Latitude</Label>
               <Input
                 value={householdForm.latitude}
                 onChange={(event) => setHouseholdForm((previous) => ({ ...previous, latitude: event.target.value }))}
-                placeholder="Latitude"
               />
+              {householdFormErrors.latitude ? <p className={errorClass}>{householdFormErrors.latitude}</p> : null}
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Longitude</Label>
               <Input
                 value={householdForm.longitude}
                 onChange={(event) => setHouseholdForm((previous) => ({ ...previous, longitude: event.target.value }))}
-                placeholder="Longitude"
               />
+              {householdFormErrors.longitude ? <p className={errorClass}>{householdFormErrors.longitude}</p> : null}
             </div>
-            {householdFormErrors.latitude ? <p className={errorClass}>{householdFormErrors.latitude}</p> : null}
-            {householdFormErrors.longitude ? <p className={errorClass}>{householdFormErrors.longitude}</p> : null}
-            <Input
-              value={householdForm.qrCode}
-              onChange={(event) => setHouseholdForm((previous) => ({ ...previous, qrCode: event.target.value }))}
-              placeholder="QR value"
-            />
-            {householdFormErrors.householdCode ? <p className={errorClass}>{householdFormErrors.householdCode}</p> : null}
+          </div>
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">QR Value</Label>
+            <Input value={householdForm.qrCode} readOnly />
+            <p className="mt-1 text-xs text-muted-foreground">Auto-generated from the same identifier batch.</p>
             {householdFormErrors.qrCode ? <p className={errorClass}>{householdFormErrors.qrCode}</p> : null}
-            {householdActionError ? (
-              <Alert variant="destructive">
-                <AlertDescription>{householdActionError}</AlertDescription>
-              </Alert>
-            ) : null}
-            <div className="flex gap-2">
-              <Button type="submit" disabled={isSubmittingHousehold || !barangayId}>
-                {isSubmittingHousehold ? 'Saving...' : editingHouseholdId ? 'Update' : 'Create'}
-              </Button>
-              {editingHouseholdId ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setEditingHouseholdId(null);
-                    setHouseholdForm(INITIAL_HOUSEHOLD_FORM_VALUES);
-                    setHouseholdFormErrors({});
-                  }}
-                >
-                  Cancel
-                </Button>
-              ) : null}
-            </div>
-          </form>
-          </CardContent>
-        </Card>
+          </div>
+          {householdActionError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{householdActionError}</AlertDescription>
+            </Alert>
+          ) : null}
+        </form>
+      </Dialog>
 
-        <Card className="xl:col-span-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Household Detail and Family Members</CardTitle>
-          </CardHeader>
-          <CardContent>
-          {!selectedHousehold ? (
-            <p className="mt-2 text-sm text-muted-foreground">Select a household to manage members.</p>
-          ) : (
-            <div className="mt-2 space-y-3">
-              <p className="text-sm text-muted-foreground">
-                {selectedHousehold.addressText} | {formatStatus(selectedHousehold.status)} | Members: {members.length}
-              </p>
-              {membersError ? (
-                <Alert variant="destructive">
-                  <AlertDescription>{membersError}</AlertDescription>
-                </Alert>
+      <Dialog
+        open={isMemberDialogOpen}
+        onOpenChange={setIsMemberDialogOpen}
+        title={editingMemberId ? 'Update Family Member' : 'Add Family Member'}
+        description="Keep household member details and vulnerability markers updated."
+        footer={
+          <Button type="submit" form="member-form" disabled={isSubmittingMember || !selectedHouseholdId}>
+            {isSubmittingMember ? 'Saving...' : editingMemberId ? 'Update' : 'Create'}
+          </Button>
+        }
+      >
+        <form id="member-form" className="space-y-3" onSubmit={onMemberSubmit} noValidate>
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Full Name</Label>
+            <Input
+              value={memberForm.fullName}
+              onChange={(event) => setMemberForm((previous) => ({ ...previous, fullName: event.target.value }))}
+            />
+            {memberFormErrors.fullName ? <p className={errorClass}>{memberFormErrors.fullName}</p> : null}
+          </div>
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Relationship</Label>
+            <Select
+              value={memberForm.relationshipToHead}
+              onChange={(event) =>
+                setMemberForm((previous) => ({ ...previous, relationshipToHead: event.target.value }))
+              }
+            >
+              <option value="">Unspecified</option>
+              {RELATIONSHIP_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+              {memberForm.relationshipToHead &&
+              !RELATIONSHIP_OPTIONS.includes(memberForm.relationshipToHead as (typeof RELATIONSHIP_OPTIONS)[number]) ? (
+                <option value={memberForm.relationshipToHead}>{memberForm.relationshipToHead}</option>
               ) : null}
-              {isLoadingMembers ? <p className="text-sm text-muted-foreground">Loading members...</p> : null}
-              <div className="grid gap-2 md:grid-cols-2">
-                <div className="space-y-2">
-                  {members.map((item) => (
-                    <div key={item.id} className="rounded-lg border border-border bg-muted/35 p-2">
-                      <p className="text-sm font-semibold text-foreground">{item.fullName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.relationshipToHead ?? 'Unspecified'} | {item.sex ?? 'Unspecified'} | {item.birthDate ?? 'No birth date'}
-                      </p>
-                      <div className="mt-2 flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setEditingMemberId(item.id);
-                            setMemberForm(toMemberFormValues(item));
-                            setMemberFormErrors({});
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        <Button type="button" variant="destructive" size="sm" onClick={() => void onDeleteMember(item)}>
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  {!isLoadingMembers && members.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No members yet.</p>
-                  ) : null}
-                </div>
-                <form className="space-y-2 rounded-lg border border-border bg-muted/35 p-3" onSubmit={onMemberSubmit} noValidate>
-                  <h3 className="text-sm font-semibold text-foreground">{editingMemberId ? 'Edit Member' : 'Add Member'}</h3>
-                  <Input
-                    value={memberForm.fullName}
-                    onChange={(event) => setMemberForm((previous) => ({ ...previous, fullName: event.target.value }))}
-                    placeholder="Full name"
-                  />
-                  {memberFormErrors.fullName ? <p className={errorClass}>{memberFormErrors.fullName}</p> : null}
-                  <Input
-                    value={memberForm.relationshipToHead}
-                    onChange={(event) =>
-                      setMemberForm((previous) => ({ ...previous, relationshipToHead: event.target.value }))
-                    }
-                    placeholder="Relationship to head"
-                  />
-                  {memberFormErrors.relationshipToHead ? <p className={errorClass}>{memberFormErrors.relationshipToHead}</p> : null}
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Input
-                      type="date"
-                      value={memberForm.birthDate}
-                      onChange={(event) => setMemberForm((previous) => ({ ...previous, birthDate: event.target.value }))}
-                    />
-                    <Select
-                      value={memberForm.sex}
-                      onChange={(event) =>
-                        setMemberForm((previous) => ({ ...previous, sex: event.target.value as HouseholdMemberFormValues['sex'] }))
-                      }
-                    >
-                      <option value="">Unspecified</option>
-                      <option value="female">Female</option>
-                      <option value="male">Male</option>
-                      <option value="other">Other</option>
-                    </Select>
-                  </div>
-                  {memberFormErrors.birthDate ? <p className={errorClass}>{memberFormErrors.birthDate}</p> : null}
-                  {memberFormErrors.sex ? <p className={errorClass}>{memberFormErrors.sex}</p> : null}
-                  <Label className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <input type="checkbox" checked={memberForm.isVulnerable} onChange={(event) => setMemberForm((previous) => ({ ...previous, isVulnerable: event.target.checked }))} />
-                    Mark vulnerable
-                  </Label>
-                  <Textarea
-                    value={memberForm.vulnerabilityNotes}
-                    onChange={(event) =>
-                      setMemberForm((previous) => ({ ...previous, vulnerabilityNotes: event.target.value }))
-                    }
-                    rows={2}
-                    placeholder="Vulnerability notes"
-                  />
-                  {memberFormErrors.vulnerabilityNotes ? <p className={errorClass}>{memberFormErrors.vulnerabilityNotes}</p> : null}
-                  {memberActionError ? (
-                    <Alert variant="destructive">
-                      <AlertDescription>{memberActionError}</AlertDescription>
-                    </Alert>
-                  ) : null}
-                  <div className="flex gap-2">
-                    <Button type="submit" disabled={isSubmittingMember}>
-                      {isSubmittingMember ? 'Saving...' : editingMemberId ? 'Update' : 'Add'}
-                    </Button>
-                    {editingMemberId ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setEditingMemberId(null);
-                          setMemberForm(INITIAL_MEMBER_FORM_VALUES);
-                          setMemberFormErrors({});
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    ) : null}
-                  </div>
-                </form>
-              </div>
+            </Select>
+            {memberFormErrors.relationshipToHead ? <p className={errorClass}>{memberFormErrors.relationshipToHead}</p> : null}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Birth Date</Label>
+              <Input
+                type="date"
+                value={memberForm.birthDate}
+                onChange={(event) => setMemberForm((previous) => ({ ...previous, birthDate: event.target.value }))}
+              />
+              {memberFormErrors.birthDate ? <p className={errorClass}>{memberFormErrors.birthDate}</p> : null}
             </div>
-          )}
-          </CardContent>
-        </Card>
-      </div>
+            <div>
+              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Sex</Label>
+              <Select
+                value={memberForm.sex}
+                onChange={(event) =>
+                  setMemberForm((previous) => ({ ...previous, sex: event.target.value as HouseholdMemberFormValues['sex'] }))
+                }
+              >
+                <option value="">Unspecified</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="other">Other</option>
+              </Select>
+              {memberFormErrors.sex ? <p className={errorClass}>{memberFormErrors.sex}</p> : null}
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={memberForm.isVulnerable}
+              onChange={(event) => setMemberForm((previous) => ({ ...previous, isVulnerable: event.target.checked }))}
+            />
+            Mark as vulnerable
+          </label>
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Vulnerability Notes</Label>
+            <Textarea
+              value={memberForm.vulnerabilityNotes}
+              onChange={(event) => setMemberForm((previous) => ({ ...previous, vulnerabilityNotes: event.target.value }))}
+              rows={2}
+            />
+            {memberFormErrors.vulnerabilityNotes ? <p className={errorClass}>{memberFormErrors.vulnerabilityNotes}</p> : null}
+          </div>
+          {memberActionError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{memberActionError}</AlertDescription>
+            </Alert>
+          ) : null}
+        </form>
+      </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteHousehold)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDeleteHousehold(null);
+          }
+        }}
+        title="Delete household"
+        description={
+          pendingDeleteHousehold
+            ? `Delete "${pendingDeleteHousehold.addressText}" and all linked family members?`
+            : ''
+        }
+        confirmLabel="Delete household"
+        onConfirm={() => (pendingDeleteHousehold ? onDeleteHousehold(pendingDeleteHousehold) : undefined)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteMember)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDeleteMember(null);
+          }
+        }}
+        title="Delete family member"
+        description={pendingDeleteMember ? `Delete "${pendingDeleteMember.fullName}" from this household?` : ''}
+        confirmLabel="Delete member"
+        onConfirm={() => (pendingDeleteMember ? onDeleteMember(pendingDeleteMember) : undefined)}
+      />
+
+      <LocationPickerDialog
+        open={isLocationPickerOpen}
+        onOpenChange={setIsLocationPickerOpen}
+        title="Pinpoint Household Location"
+        initialLocationText={householdForm.addressText}
+        initialLatitude={parseOptionalNumber(householdForm.latitude)}
+        initialLongitude={parseOptionalNumber(householdForm.longitude)}
+        onSelect={(value) =>
+          setHouseholdForm((current) => ({
+            ...current,
+            addressText: value.locationText,
+            latitude: value.latitude.toFixed(6),
+            longitude: value.longitude.toFixed(6),
+          }))
+        }
+      />
     </section>
   );
 }

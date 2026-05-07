@@ -1,12 +1,6 @@
 import type { AppRouteDefinition } from '../types/routing';
 
 export const APP_ROUTES = {
-  LANDING: {
-    path: '/',
-    meta: {
-      title: 'Welcome',
-    },
-  },
   LOGIN: {
     path: '/login',
     meta: {

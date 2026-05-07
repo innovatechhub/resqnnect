@@ -2,17 +2,10 @@ import type { PropsWithChildren } from 'react';
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import type { AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js';
 
-import { getMissingSupabaseEnvKeys, isSupabaseEnvConfigured } from '../../lib/env';
+import { getMissingSupabaseEnvKeys, getSupabaseEnvIssues, isSupabaseEnvConfigured } from '../../lib/env';
 import { getSupabaseClient } from '../../services/supabase/client';
 import { resolveUserProfile } from '../../services/supabase/profile';
-import type { AuthState, UserRole } from '../../types/auth';
-
-const MOCK_PROFILES: Record<string, { role: UserRole; fullName: string }> = {
-  'admin@reqnnect.com': { role: 'mdrrmo_admin', fullName: 'Demo Admin' },
-  'official@reqnnect.com': { role: 'barangay_official', fullName: 'Demo Official' },
-  'rescuer@reqnnect.com': { role: 'rescuer', fullName: 'Demo Rescuer' },
-  'user@reqnnect.com': { role: 'household', fullName: 'Demo User' },
-};
+import type { AuthState } from '../../types/auth';
 
 interface SignInInput {
   email: string;
@@ -29,6 +22,7 @@ const baseState: AuthState = {
   status: isSupabaseEnvConfigured() ? 'loading' : 'unavailable',
   isConfigured: isSupabaseEnvConfigured(),
   missingEnvKeys: getMissingSupabaseEnvKeys(),
+  envIssues: getSupabaseEnvIssues(),
   session: null,
   user: null,
   profile: null,
@@ -159,35 +153,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const signInWithPassword = useCallback(
     async ({ email, password }: SignInInput) => {
-      // Demo Mode fallback is only used when Supabase is not configured.
-      if (!client && email.endsWith('@reqnnect.com')) {
-        const mockProfile = MOCK_PROFILES[email] || { role: 'household', fullName: 'Demo User' };
-        const mockUser = {
-          id: 'demo-user-id',
-          email,
-          user_metadata: { full_name: mockProfile.fullName },
-          app_metadata: { role: mockProfile.role },
-        } as any;
-
-        setState((previous) => ({
-          ...previous,
-          status: 'authenticated',
-          session: { user: mockUser, access_token: 'demo-token', refresh_token: 'demo-token' } as any,
-          user: mockUser,
-          profile: {
-            id: 'demo-user-id',
-            role: mockProfile.role,
-            fullName: mockProfile.fullName,
-            barangayId: null,
-            source: 'metadata',
-          },
-          role: mockProfile.role,
-          errorMessage: null,
-          warningMessage: 'You are logged in using Demo Mode (No Supabase connection).',
-        }));
-        return null;
-      }
-
       if (!client) {
         return 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY first.';
       }
@@ -205,7 +170,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const signOut = useCallback(async () => {
     if (!client) {
-      return 'Supabase is not configured.';
+      setState((previous) => unauthenticatedState(previous));
+      return null;
     }
 
     const { error } = await client.auth.signOut();

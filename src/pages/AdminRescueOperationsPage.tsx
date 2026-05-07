@@ -9,9 +9,20 @@ import { Alert, AlertDescription } from '../components/ui/alert';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { DataTablePagination, DataTableToolbar } from '../components/ui/data-table-controls';
+import { Dialog } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select } from '../components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '../components/ui/table';
 import { Textarea } from '../components/ui/textarea';
 import { useAuth } from '../features/auth/useAuth';
 import {
@@ -36,6 +47,7 @@ import {
   updateRescueAssignmentStatus,
 } from '../services/supabase/rescueOperations';
 import { listRescueRequests } from '../services/supabase/rescueRequests';
+import { getPageCount, paginateItems, sortByKey, type SortDirection } from '../lib/table';
 
 const errorClass = 'mt-1 text-xs text-destructive';
 
@@ -60,12 +72,21 @@ function formatRescueRequestOptionLabel(item: {
   return `${item.emergencyType} | Severity ${item.severityLevel} | ${item.peopleCount} pax | ${item.status}`;
 }
 
+function formatRequestStatusLabel(status: string): string {
+  return status.replaceAll('_', ' ');
+}
+
 export function AdminRescueOperationsPage() {
   const auth = useAuth();
   const client = useMemo(() => getSupabaseClient(), []);
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [page, setPage] = useState(0);
   const userId = auth.user?.id ?? null;
+  const pageSize = 8;
 
   const requestsQueryKey = ['rescue-requests', 'operations-options', 'admin'] as const;
   const rescuersQueryKey = ['rescuer-profiles', 'admin'] as const;
@@ -119,6 +140,7 @@ export function AdminRescueOperationsPage() {
     onSuccess: async () => {
       reset(INITIAL_RESCUE_ASSIGNMENT_FORM_VALUES);
       setActionError(null);
+      setIsCreateDialogOpen(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: assignmentsQueryKey }),
         queryClient.invalidateQueries({ queryKey: requestsQueryKey }),
@@ -187,6 +209,27 @@ export function AdminRescueOperationsPage() {
     }
     return result;
   }, [rescuersQuery.data]);
+  const filteredAssignments = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const scoped = query
+      ? (assignmentsQuery.data ?? []).filter((assignment) =>
+          [
+            assignment.rescueRequest?.emergencyType,
+            assignment.teamName,
+            assignment.assignmentNotes,
+            rescuerMap.get(assignment.assignedTo),
+          ].some((value) => (value ?? '').toLowerCase().includes(query)),
+        )
+      : (assignmentsQuery.data ?? []);
+
+    return sortByKey(scoped, (assignment) => assignment.updatedAt, sortDirection);
+  }, [assignmentsQuery.data, rescuerMap, search, sortDirection]);
+  const pageCount = getPageCount(filteredAssignments.length, pageSize);
+  const pagedAssignments = useMemo(() => paginateItems(filteredAssignments, page, pageSize), [filteredAssignments, page]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [search, sortDirection]);
 
   async function onCreateAssignment(values: RescueAssignmentFormValues) {
     try {
@@ -217,7 +260,7 @@ export function AdminRescueOperationsPage() {
       <SectionHeader
         missionTag="Mission 7"
         title="Rescue Operations Command"
-        summary="Assign responders to rescue requests and manage mission progress across teams."
+        summary="Assignment queue and mission lifecycle controls for MDRRMO dispatch."
       />
 
       {actionError ? (
@@ -226,143 +269,172 @@ export function AdminRescueOperationsPage() {
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Create Assignment</CardTitle>
-          </CardHeader>
-          <CardContent>
-          <form className="mt-3 space-y-3" noValidate onSubmit={(event) => void handleSubmit(onCreateAssignment)(event)}>
-            <div>
-              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Rescue Request</Label>
-              <Select {...register('rescueRequestId')}>
-                <option value="">Select request</option>
-                {openRequests.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {formatRescueRequestOptionLabel(item)}
-                  </option>
-                ))}
-              </Select>
-              {errors.rescueRequestId ? <p className={errorClass}>{errors.rescueRequestId.message}</p> : null}
-            </div>
-
-            <div>
-              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Rescuer</Label>
-              <Select {...register('assignedTo')}>
-                <option value="">Select rescuer</option>
-                {(rescuersQuery.data ?? []).map((rescuer) => (
-                  <option key={rescuer.id} value={rescuer.id}>
-                    {rescuer.fullName ?? rescuer.id}
-                  </option>
-                ))}
-              </Select>
-              {errors.assignedTo ? <p className={errorClass}>{errors.assignedTo.message}</p> : null}
-            </div>
-
-            <div>
-              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Team Name</Label>
-              <Input placeholder="Alpha Team" {...register('teamName')} />
-              {errors.teamName ? <p className={errorClass}>{errors.teamName.message}</p> : null}
-            </div>
-
-            <div>
-              <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Assignment Notes</Label>
-              <Textarea
-                rows={3}
-                placeholder="Dispatch constraints, hazards, and instructions."
-                {...register('assignmentNotes')}
-              />
-              {errors.assignmentNotes ? <p className={errorClass}>{errors.assignmentNotes.message}</p> : null}
-            </div>
-
-            <Button
-              type="submit"
-              disabled={
-                createAssignmentMutation.isPending ||
-                requestsQuery.isLoading ||
-                rescuersQuery.isLoading ||
-                openRequests.length === 0
-              }
-            >
-              {createAssignmentMutation.isPending ? 'Assigning...' : 'Create Assignment'}
-            </Button>
-          </form>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-muted/35">
-          <CardHeader className="pb-3">
+      <Card className="bg-muted/35">
+        <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base">Mission Queue</CardTitle>
-            <Button type="button" variant="outline" size="sm" onClick={() => void assignmentsQuery.refetch()}>
-              Refresh
-            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => void assignmentsQuery.refetch()}>
+                Refresh
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setIsCreateDialogOpen(true)}
+                disabled={openRequests.length === 0 || rescuersQuery.isLoading}
+              >
+                New Assignment
+              </Button>
+            </div>
           </div>
-          </CardHeader>
-          <CardContent>
-
-          {assignmentsQuery.isLoading ? <p className="mt-3 text-sm text-muted-foreground">Loading assignments...</p> : null}
-          {assignmentsQuery.isError ? (
-            <Alert variant="destructive" className="mt-3">
-              <AlertDescription>
-                {assignmentsQuery.error instanceof Error
-                  ? assignmentsQuery.error.message
-                  : 'Failed to load assignments.'}
-              </AlertDescription>
-            </Alert>
+        </CardHeader>
+        <CardContent>
+          <DataTableToolbar
+            value={search}
+            onValueChange={setSearch}
+            placeholder="Search request, team, rescuer, or notes"
+            summary={`${filteredAssignments.length} assignments`}
+          />
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <tr>
+                  <TableHeaderCell>Request</TableHeaderCell>
+                  <TableHeaderCell>Rescuer</TableHeaderCell>
+                  <TableHeaderCell>Team</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>
+                    <button type="button" onClick={() => setSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
+                      Updated
+                    </button>
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-right">Lifecycle</TableHeaderCell>
+                </tr>
+              </TableHead>
+              <TableBody>
+                {pagedAssignments.map((assignment) => (
+                  <TableRow key={assignment.id}>
+                    <TableCell>
+                      <p className="font-medium">{assignment.rescueRequest?.emergencyType ?? 'Unlinked Request'}</p>
+                      {assignment.rescueRequest ? (
+                        <div className="space-y-0.5 text-xs text-muted-foreground">
+                          <p>
+                            Severity {assignment.rescueRequest.severityLevel} | {assignment.rescueRequest.peopleCount} people
+                          </p>
+                          <p>{assignment.rescueRequest.locationText ?? 'Location not provided'}</p>
+                          <p className="capitalize">{formatRequestStatusLabel(assignment.rescueRequest.status)}</p>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Request details unavailable</p>
+                      )}
+                    </TableCell>
+                    <TableCell>{rescuerMap.get(assignment.assignedTo) ?? assignment.assignedTo}</TableCell>
+                    <TableCell>{assignment.teamName ?? 'N/A'}</TableCell>
+                    <TableCell>
+                      <Badge className={RESCUE_MISSION_STATUS_BADGE_CLASSES[assignment.status]}>
+                        {RESCUE_MISSION_STATUS_LABELS[assignment.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{formatTimestamp(assignment.updatedAt)}</TableCell>
+                    <TableCell>
+                      <div className="flex justify-end">
+                        <Select
+                          value={assignment.status}
+                          disabled={updateAssignmentStatusMutation.isPending}
+                          onChange={(event) =>
+                            void onStatusChange(assignment.id, event.target.value as RescueMissionStatus)
+                          }
+                          className="h-8 min-w-44 text-xs"
+                        >
+                          {RESCUE_MISSION_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {RESCUE_MISSION_STATUS_LABELS[status]}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {!assignmentsQuery.isLoading && (assignmentsQuery.data ?? []).length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">No assignments yet.</p>
           ) : null}
-
-          <div className="mt-3 space-y-2">
-            {(assignmentsQuery.data ?? []).map((assignment) => (
-              <article key={assignment.id} className="rounded-lg border border-border bg-card p-3 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      {assignment.rescueRequest?.emergencyType ?? 'Unlinked Request'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Rescuer: {rescuerMap.get(assignment.assignedTo) ?? assignment.assignedTo}
-                      {assignment.teamName ? ` | Team: ${assignment.teamName}` : ''}
-                    </p>
-                  </div>
-                  <Badge className={RESCUE_MISSION_STATUS_BADGE_CLASSES[assignment.status]}>
-                    {RESCUE_MISSION_STATUS_LABELS[assignment.status]}
-                  </Badge>
-                </div>
-
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {assignment.assignmentNotes ?? 'No assignment notes.'}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Updated {formatTimestamp(assignment.updatedAt)}
-                </p>
-
-                <Label className="mt-2 flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-                  <span>Status</span>
-                  <Select
-                    value={assignment.status}
-                    disabled={updateAssignmentStatusMutation.isPending}
-                    onChange={(event) =>
-                      void onStatusChange(assignment.id, event.target.value as RescueMissionStatus)
-                    }
-                    className="h-8 min-w-36 text-xs"
-                  >
-                    {RESCUE_MISSION_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {RESCUE_MISSION_STATUS_LABELS[status]}
-                      </option>
-                    ))}
-                  </Select>
-                </Label>
-              </article>
-            ))}
-            {!assignmentsQuery.isLoading && (assignmentsQuery.data ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No assignments yet.</p>
-            ) : null}
+          <div className="mt-3">
+            <DataTablePagination
+              page={page}
+              pageCount={pageCount}
+              totalCount={filteredAssignments.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+            />
           </div>
-          </CardContent>
-        </Card>
-      </div>
+        </CardContent>
+      </Card>
+
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        title="Create Assignment"
+        description="Assign an active rescue request to a rescuer and dispatch team."
+        footer={
+          <Button
+            type="submit"
+            form="assignment-form"
+            disabled={
+              createAssignmentMutation.isPending || requestsQuery.isLoading || rescuersQuery.isLoading || openRequests.length === 0
+            }
+          >
+            {createAssignmentMutation.isPending ? 'Assigning...' : 'Create Assignment'}
+          </Button>
+        }
+      >
+        <form id="assignment-form" className="space-y-3" noValidate onSubmit={(event) => void handleSubmit(onCreateAssignment)(event)}>
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Rescue Request</Label>
+            <Select {...register('rescueRequestId')}>
+              <option value="">Select request</option>
+              {openRequests.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {formatRescueRequestOptionLabel(item)}
+                </option>
+              ))}
+            </Select>
+            {errors.rescueRequestId ? <p className={errorClass}>{errors.rescueRequestId.message}</p> : null}
+          </div>
+
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Rescuer</Label>
+            <Select {...register('assignedTo')}>
+              <option value="">Select rescuer</option>
+              {(rescuersQuery.data ?? []).map((rescuer) => (
+                <option key={rescuer.id} value={rescuer.id}>
+                  {rescuer.fullName ?? rescuer.id}
+                </option>
+              ))}
+            </Select>
+            {errors.assignedTo ? <p className={errorClass}>{errors.assignedTo.message}</p> : null}
+          </div>
+
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Team Name</Label>
+            <Input placeholder="Alpha Team" {...register('teamName')} />
+            {errors.teamName ? <p className={errorClass}>{errors.teamName.message}</p> : null}
+          </div>
+
+          <div>
+            <Label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">Assignment Notes</Label>
+            <Textarea
+              rows={3}
+              placeholder="Dispatch constraints, hazards, and instructions."
+              {...register('assignmentNotes')}
+            />
+            {errors.assignmentNotes ? <p className={errorClass}>{errors.assignmentNotes.message}</p> : null}
+          </div>
+        </form>
+      </Dialog>
     </section>
   );
 }

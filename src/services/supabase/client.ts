@@ -1,18 +1,18 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-import { appEnv, getMissingSupabaseEnvKeys } from '../../lib/env';
+import { appEnv, getSupabaseEnvIssues } from '../../lib/env';
 
 let client: SupabaseClient | null = null;
-let hasLoggedMissingEnv = false;
+let hasLoggedEnvIssue = false;
 
-function logMissingEnvOnce(): void {
-  if (hasLoggedMissingEnv) {
+function logEnvIssueOnce(): void {
+  if (hasLoggedEnvIssue) {
     return;
   }
 
-  hasLoggedMissingEnv = true;
-  const missing = getMissingSupabaseEnvKeys();
-  console.warn(`[Supabase] Missing environment variables: ${missing.join(', ')}. Client not initialized.`);
+  hasLoggedEnvIssue = true;
+  const issues = getSupabaseEnvIssues();
+  console.warn(`[Supabase] Environment configuration issue: ${issues.join(' ')} Client not initialized.`);
 }
 
 export function getSupabaseClient(): SupabaseClient | null {
@@ -20,9 +20,9 @@ export function getSupabaseClient(): SupabaseClient | null {
     return client;
   }
 
-  const missing = getMissingSupabaseEnvKeys();
-  if (missing.length > 0) {
-    logMissingEnvOnce();
+  const issues = getSupabaseEnvIssues();
+  if (issues.length > 0) {
+    logEnvIssueOnce();
     return null;
   }
 

@@ -1,6 +1,7 @@
 import type { UserRole } from '../types/auth';
 
 export interface NavLinkItem {
+  icon: string;
   to: string;
   label: string;
 }
@@ -14,32 +15,33 @@ export const ROLE_HOME_PATHS: Record<UserRole, string> = {
 
 export const ROLE_NAV_LINKS: Record<UserRole, readonly NavLinkItem[]> = {
   mdrrmo_admin: [
-    { to: '/app/admin/dashboard', label: 'Dashboard' },
-    { to: '/app/admin/rescue-requests', label: 'Rescue Requests' },
-    { to: '/app/admin/rescue-operations', label: 'Rescue Operations' },
-    { to: '/app/admin/evacuation-centers', label: 'Evacuation Centers' },
-    { to: '/app/admin/relief', label: 'Relief Oversight' },
-    { to: '/app/admin/reports', label: 'Reports' },
+    { to: '/app/admin/dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+    { to: '/app/admin/rescue-requests', label: 'Rescue Requests', icon: 'siren' },
+    { to: '/app/admin/rescue-operations', label: 'Rescue Operations', icon: 'shield-plus' },
+    { to: '/app/admin/evacuation-centers', label: 'Evacuation Centers', icon: 'building-2' },
+    { to: '/app/admin/user-access', label: 'User Access', icon: 'user-cog' },
+    { to: '/app/admin/relief', label: 'Relief Oversight', icon: 'boxes' },
+    { to: '/app/admin/reports', label: 'Reports', icon: 'bar-chart-3' },
   ],
   barangay_official: [
-    { to: '/app/barangay/dashboard', label: 'Dashboard' },
-    { to: '/app/barangay/households', label: 'Households' },
-    { to: '/app/barangay/rescue-requests', label: 'Rescue Requests' },
-    { to: '/app/barangay/evacuee-verification', label: 'Evacuee Verification' },
-    { to: '/app/barangay/relief', label: 'Relief Distribution' },
-    { to: '/app/barangay/reports', label: 'Barangay Reports' },
+    { to: '/app/barangay/dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+    { to: '/app/barangay/households', label: 'Households', icon: 'users-round' },
+    { to: '/app/barangay/rescue-requests', label: 'Rescue Requests', icon: 'siren' },
+    { to: '/app/barangay/evacuee-verification', label: 'Evacuee Verification', icon: 'scan-line' },
+    { to: '/app/barangay/relief', label: 'Relief Distribution', icon: 'package-check' },
+    { to: '/app/barangay/reports', label: 'Barangay Reports', icon: 'bar-chart-3' },
   ],
   rescuer: [
-    { to: '/app/rescuer/dashboard', label: 'Dashboard' },
-    { to: '/app/rescuer/missions', label: 'Assigned Missions' },
-    { to: '/app/rescuer/live-location', label: 'Live Location' },
-    { to: '/app/rescuer/history', label: 'Mission History' },
+    { to: '/app/rescuer/dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+    { to: '/app/rescuer/missions', label: 'Assigned Missions', icon: 'clipboard-list' },
+    { to: '/app/rescuer/live-location', label: 'Live Location', icon: 'map-pinned' },
+    { to: '/app/rescuer/history', label: 'Mission History', icon: 'history' },
   ],
   household: [
-    { to: '/app/household/dashboard', label: 'Dashboard' },
-    { to: '/app/household/rescue-requests', label: 'Rescue Requests' },
-    { to: '/app/household/qr-profile', label: 'QR Profile' },
-    { to: '/app/household/evacuation-status', label: 'Evacuation Status' },
+    { to: '/app/household/dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+    { to: '/app/household/rescue-requests', label: 'Rescue Requests', icon: 'siren' },
+    { to: '/app/household/qr-profile', label: 'QR Profile', icon: 'qr-code' },
+    { to: '/app/household/evacuation-status', label: 'Evacuation Status', icon: 'tent' },
   ],
 };
 

@@ -5,15 +5,21 @@ import { RoleHomeRedirect } from '../components/routing/RoleHomeRedirect';
 import { RouteGuard } from '../components/routing/RouteGuard';
 import { APP_ROUTES } from '../constants/routes';
 import { BarangayDashboardPage } from '../pages/BarangayDashboardPage';
+import { BarangayEvacueeVerificationPage } from '../pages/BarangayEvacueeVerificationPage';
 import { AdminRescueOperationsPage } from '../pages/AdminRescueOperationsPage';
+import { AdminUserAccessPage } from '../pages/AdminUserAccessPage';
+import { EvacuationCentersPage } from '../pages/EvacuationCentersPage';
 import { HouseholdDashboardPage } from '../pages/HouseholdDashboardPage';
+import { HouseholdEvacuationStatusPage } from '../pages/HouseholdEvacuationStatusPage';
+import { HouseholdQrProfilePage } from '../pages/HouseholdQrProfilePage';
 import { HouseholdRescueRequestsPage } from '../pages/HouseholdRescueRequestsPage';
-import { LandingPage } from '../pages/LandingPage';
 import { LoginPage } from '../pages/LoginPage';
 import { BarangayHouseholdsPage } from '../pages/BarangayHouseholdsPage';
 import { MdrrmoDashboardPage } from '../pages/MdrrmoDashboardPage';
-import { ModulePlaceholderPage } from '../pages/ModulePlaceholderPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
+import { ReliefDistributionPage } from '../pages/ReliefDistributionPage';
+import { ReportsPage } from '../pages/ReportsPage';
+import { RescueRequestDetailPage } from '../pages/RescueRequestDetailPage';
 import { RescuerDashboardPage } from '../pages/RescuerDashboardPage';
 import { RescuerLiveLocationPage } from '../pages/RescuerLiveLocationPage';
 import { RescuerMissionHistoryPage, RescuerMissionsPage } from '../pages/RescuerMissionsPages';
@@ -46,35 +52,28 @@ const appChildren: RouteObject[] = [
         element: <AdminRescueRequestsPage />,
       },
       {
+        path: 'rescue-requests/:requestId',
+        element: <RescueRequestDetailPage />,
+      },
+      {
         path: 'rescue-operations',
         element: <AdminRescueOperationsPage />,
       },
       {
         path: 'evacuation-centers',
-        element: (
-          <ModulePlaceholderPage
-            moduleName="Evacuation Centers Monitor"
-            summary="Capacity, occupancy, and center availability across the municipality."
-          />
-        ),
+        element: <EvacuationCentersPage />,
+      },
+      {
+        path: 'user-access',
+        element: <AdminUserAccessPage />,
       },
       {
         path: 'relief',
-        element: (
-          <ModulePlaceholderPage
-            moduleName="Relief Oversight"
-            summary="Municipality-wide relief inventory oversight and distribution audit."
-          />
-        ),
+        element: <ReliefDistributionPage />,
       },
       {
         path: 'reports',
-        element: (
-          <ModulePlaceholderPage
-            moduleName="Operations Reports"
-            summary="Consolidated analytics and export workflows for MDRRMO leadership."
-          />
-        ),
+        element: <ReportsPage scope="admin" />,
       },
     ],
   },
@@ -103,31 +102,20 @@ const appChildren: RouteObject[] = [
         element: <BarangayRescueRequestsPage />,
       },
       {
+        path: 'rescue-requests/:requestId',
+        element: <RescueRequestDetailPage />,
+      },
+      {
         path: 'evacuee-verification',
-        element: (
-          <ModulePlaceholderPage
-            moduleName="Evacuee Verification"
-            summary="QR and manual verification queue for evacuee intake validation."
-          />
-        ),
+        element: <BarangayEvacueeVerificationPage />,
       },
       {
         path: 'relief',
-        element: (
-          <ModulePlaceholderPage
-            moduleName="Relief Distribution"
-            summary="Barangay-level release logging and beneficiary verification workflow."
-          />
-        ),
+        element: <ReliefDistributionPage />,
       },
       {
         path: 'reports',
-        element: (
-          <ModulePlaceholderPage
-            moduleName="Barangay Reports"
-            summary="Filtered operational reports for barangay planning and accountability."
-          />
-        ),
+        element: <ReportsPage scope="barangay" />,
       },
     ],
   },
@@ -182,22 +170,16 @@ const appChildren: RouteObject[] = [
         element: <HouseholdRescueRequestsPage />,
       },
       {
+        path: 'rescue-requests/:requestId',
+        element: <RescueRequestDetailPage />,
+      },
+      {
         path: 'qr-profile',
-        element: (
-          <ModulePlaceholderPage
-            moduleName="Household QR Profile"
-            summary="Resident QR identifier and verification history summary."
-          />
-        ),
+        element: <HouseholdQrProfilePage />,
       },
       {
         path: 'evacuation-status',
-        element: (
-          <ModulePlaceholderPage
-            moduleName="Evacuation Status"
-            summary="Current center assignment, occupancy context, and family status."
-          />
-        ),
+        element: <HouseholdEvacuationStatusPage />,
       },
     ],
   },
@@ -226,7 +208,7 @@ const appChildren: RouteObject[] = [
 export const appRouter = createBrowserRouter([
   {
     path: '/',
-    element: <LandingPage />,
+    element: <Navigate replace to="/login" />,
   },
   {
     path: '/login',

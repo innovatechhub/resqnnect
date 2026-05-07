@@ -10,9 +10,24 @@ stable
 security definer
 set search_path = public
 as $$
-  select p.role
-  from public.profiles p
-  where p.id = auth.uid()
+  with profile_role as (
+    select p.role
+    from public.profiles p
+    where p.id = auth.uid()
+  ),
+  metadata_role as (
+    select
+      case
+        when coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role')
+          in ('mdrrmo_admin', 'barangay_official', 'rescuer', 'household')
+          then coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role')::public.user_role
+        else null
+      end as role
+  )
+  select coalesce(
+    (select role from profile_role),
+    (select role from metadata_role)
+  )
 $$;
 
 create or replace function public.current_user_barangay_id()
@@ -22,9 +37,24 @@ stable
 security definer
 set search_path = public
 as $$
-  select p.barangay_id
-  from public.profiles p
-  where p.id = auth.uid()
+  with profile_barangay as (
+    select p.barangay_id
+    from public.profiles p
+    where p.id = auth.uid()
+  ),
+  metadata_barangay as (
+    select
+      case
+        when coalesce(auth.jwt() -> 'app_metadata' ->> 'barangay_id', auth.jwt() -> 'user_metadata' ->> 'barangay_id')
+          ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          then coalesce(auth.jwt() -> 'app_metadata' ->> 'barangay_id', auth.jwt() -> 'user_metadata' ->> 'barangay_id')::uuid
+        else null
+      end as barangay_id
+  )
+  select coalesce(
+    (select barangay_id from profile_barangay),
+    (select barangay_id from metadata_barangay)
+  )
 $$;
 
 create or replace function public.current_user_household_id()
@@ -78,6 +108,87 @@ language sql
 stable
 as $$
   select coalesce(public.current_user_role() = 'household', false)
+$$;
+
+create or replace function public.can_insert_household(target_barangay_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select (
+    public.is_admin()
+    or exists (
+      select 1
+      from public.profiles p
+      where p.id = auth.uid()
+        and p.role = 'barangay_official'
+        and p.barangay_id = target_barangay_id
+    )
+    or (
+      coalesce(auth.jwt() -> 'app_metadata' ->> 'role', auth.jwt() -> 'user_metadata' ->> 'role') = 'barangay_official'
+      and coalesce(auth.jwt() -> 'app_metadata' ->> 'barangay_id', auth.jwt() -> 'user_metadata' ->> 'barangay_id')
+        ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      and coalesce(auth.jwt() -> 'app_metadata' ->> 'barangay_id', auth.jwt() -> 'user_metadata' ->> 'barangay_id')::uuid = target_barangay_id
+    )
+  )
+$$;
+
+create or replace function public.create_household(
+  target_barangay_id uuid,
+  target_household_code text,
+  target_address_text text,
+  target_latitude numeric,
+  target_longitude numeric,
+  target_qr_code text,
+  target_status text default 'active'
+)
+returns public.households
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  created_row public.households;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated'
+      using errcode = '42501';
+  end if;
+
+  if not public.can_insert_household(target_barangay_id) then
+    raise exception 'Not allowed to create household for this barangay'
+      using errcode = '42501';
+  end if;
+
+  insert into public.households (
+    household_code,
+    barangay_id,
+    address_text,
+    latitude,
+    longitude,
+    qr_code,
+    status,
+    created_by
+  )
+  values (
+    nullif(target_household_code, ''),
+    target_barangay_id,
+    target_address_text,
+    target_latitude,
+    target_longitude,
+    nullif(target_qr_code, ''),
+    case
+      when target_status in ('active', 'evacuated', 'inactive') then target_status
+      else 'active'
+    end,
+    auth.uid()
+  )
+  returning * into created_row;
+
+  return created_row;
+end;
 $$;
 
 create or replace function public.profile_in_my_barangay(target_profile_id uuid)
@@ -218,6 +329,8 @@ grant execute on function public.is_admin() to authenticated;
 grant execute on function public.is_barangay_official() to authenticated;
 grant execute on function public.is_rescuer() to authenticated;
 grant execute on function public.is_household() to authenticated;
+grant execute on function public.can_insert_household(uuid) to authenticated;
+grant execute on function public.create_household(uuid, text, text, numeric, numeric, text, text) to authenticated;
 
 alter table public.roles enable row level security;
 alter table public.barangays enable row level security;
@@ -313,8 +426,7 @@ drop policy if exists households_insert_scoped on public.households;
 create policy households_insert_scoped on public.households
 for insert to authenticated
 with check (
-  public.is_admin()
-  or (public.is_barangay_official() and barangay_id = public.current_user_barangay_id())
+  public.can_insert_household(households.barangay_id)
 );
 
 drop policy if exists households_update_scoped on public.households;

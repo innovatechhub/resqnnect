@@ -1,14 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { RESCUE_REQUEST_STATUSES, type RescueRequestStatus } from '../constants/status';
 import { SectionHeader } from '../components/system/SectionHeader';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
+import { Button, buttonVariants } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { DataTablePagination, DataTableToolbar } from '../components/ui/data-table-controls';
 import { Label } from '../components/ui/label';
 import { Select } from '../components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '../components/ui/table';
 import { useAuth } from '../features/auth/useAuth';
 import {
   RESCUE_REQUEST_STATUS_BADGE_CLASSES,
@@ -21,6 +32,7 @@ import {
   updateRescueRequestStatus,
   type RescueRequestRecord,
 } from '../services/supabase/rescueRequests';
+import { getPageCount, paginateItems, sortByKey, type SortDirection } from '../lib/table';
 
 interface CommandPageConfig {
   title: string;
@@ -42,7 +54,7 @@ function formatTimestamp(value: string): string {
 
 function formatCoordinates(request: RescueRequestRecord): string {
   if (request.latitude === null || request.longitude === null) {
-    return 'Coordinates unavailable';
+    return 'N/A';
   }
 
   return `${request.latitude.toFixed(5)}, ${request.longitude.toFixed(5)}`;
@@ -54,6 +66,10 @@ function RescueRequestsCommandPage({ title, summary, scope }: CommandPageConfig)
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<'all' | RescueRequestStatus>('all');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [page, setPage] = useState(0);
+  const pageSize = 8;
 
   const barangayId = auth.profile?.barangayId ?? null;
   const canLoadRequests =
@@ -118,12 +134,23 @@ function RescueRequestsCommandPage({ title, summary, scope }: CommandPageConfig)
 
   const filteredRequests = useMemo(() => {
     const requests = requestsQuery.data ?? [];
-    if (statusFilter === 'all') {
-      return requests;
-    }
+    const byStatus = statusFilter === 'all' ? requests : requests.filter((item) => item.status === statusFilter);
+    const query = search.trim().toLowerCase();
+    const searched = query
+      ? byStatus.filter((item) =>
+          [item.emergencyType, item.locationText, item.details, item.requestedBy].some((value) =>
+            (value ?? '').toLowerCase().includes(query),
+          ),
+        )
+      : byStatus;
+    return sortByKey(searched, (item) => item.updatedAt, sortDirection);
+  }, [requestsQuery.data, search, sortDirection, statusFilter]);
+  const pageCount = getPageCount(filteredRequests.length, pageSize);
+  const pagedRequests = useMemo(() => paginateItems(filteredRequests, page, pageSize), [filteredRequests, page]);
 
-    return requests.filter((item) => item.status === statusFilter);
-  }, [requestsQuery.data, statusFilter]);
+  useEffect(() => {
+    setPage(0);
+  }, [search, sortDirection, statusFilter]);
 
   async function onStatusChange(requestId: string, nextStatus: RescueRequestStatus) {
     try {
@@ -158,90 +185,117 @@ function RescueRequestsCommandPage({ title, summary, scope }: CommandPageConfig)
 
       <Card className="bg-muted/35">
         <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base">Active Queue</CardTitle>
-          <div className="flex items-center gap-2">
-            <Select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as 'all' | RescueRequestStatus)}
-              className="h-8 text-xs"
-            >
-              <option value="all">All statuses</option>
-              {RESCUE_REQUEST_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {RESCUE_REQUEST_STATUS_LABELS[status]}
-                </option>
-              ))}
-            </Select>
-            <Button type="button" variant="outline" size="sm" onClick={() => void requestsQuery.refetch()}>
-              Refresh
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">Incident Queue</CardTitle>
+            <div className="flex items-center gap-2">
+              <Select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as 'all' | RescueRequestStatus)}
+                className="h-8 text-xs"
+              >
+                <option value="all">All statuses</option>
+                {RESCUE_REQUEST_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {RESCUE_REQUEST_STATUS_LABELS[status]}
+                  </option>
+                ))}
+              </Select>
+              <Button type="button" variant="outline" size="sm" onClick={() => void requestsQuery.refetch()}>
+                Refresh
+              </Button>
+            </div>
           </div>
-        </div>
         </CardHeader>
         <CardContent>
+          <DataTableToolbar
+            value={search}
+            onValueChange={setSearch}
+            placeholder="Search emergency, location, details, or requester"
+            summary={`${filteredRequests.length} incidents`}
+          />
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <tr>
+                  <TableHeaderCell>Emergency</TableHeaderCell>
+                  <TableHeaderCell>Severity</TableHeaderCell>
+                  <TableHeaderCell>People</TableHeaderCell>
+                  <TableHeaderCell>Location</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>
+                    <button type="button" onClick={() => setSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
+                      Updated
+                    </button>
+                  </TableHeaderCell>
+                  <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+                </tr>
+              </TableHead>
+              <TableBody>
+                {pagedRequests.map((request) => {
+                  const isUpdatingThisRequest =
+                    updateStatusMutation.isPending && updateStatusMutation.variables?.requestId === request.id;
 
-        {requestsQuery.isLoading ? <p className="mt-3 text-sm text-muted-foreground">Loading rescue requests...</p> : null}
-        {requestsQuery.isError ? (
-          <Alert variant="destructive" className="mt-3">
-            <AlertDescription>
-              {requestsQuery.error instanceof Error ? requestsQuery.error.message : 'Failed to load rescue requests.'}
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        <div className="mt-3 space-y-2">
-          {filteredRequests.map((request) => {
-            const isUpdatingThisRequest =
-              updateStatusMutation.isPending && updateStatusMutation.variables?.requestId === request.id;
-
-            return (
-              <article key={request.id} className="rounded-lg border border-border bg-card p-3 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{request.emergencyType}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Severity {request.severityLevel} | Affected {request.peopleCount} | Requested by{' '}
-                      <span className="font-mono">{request.requestedBy}</span>
-                    </p>
-                  </div>
-                  <Badge className={RESCUE_REQUEST_STATUS_BADGE_CLASSES[request.status]}>
-                    {RESCUE_REQUEST_STATUS_LABELS[request.status]}
-                  </Badge>
-                </div>
-
-                <p className="mt-2 text-sm text-muted-foreground">{request.details}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {request.locationText ?? 'No location text'} | {formatCoordinates(request)}
-                </p>
-
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">Updated {formatTimestamp(request.updatedAt)}</p>
-                  <Label className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-                    <span>Status</span>
-                    <Select
-                      value={request.status}
-                      disabled={isUpdatingThisRequest}
-                      onChange={(event) =>
-                        void onStatusChange(request.id, event.target.value as RescueRequestStatus)
-                      }
-                      className="h-8 min-w-36 text-xs"
-                    >
-                      {RESCUE_REQUEST_STATUSES.map((status) => (
-                        <option key={status} value={status}>
-                          {RESCUE_REQUEST_STATUS_LABELS[status]}
-                        </option>
-                      ))}
-                    </Select>
-                  </Label>
-                </div>
-              </article>
-            );
-          })}
+                  return (
+                    <TableRow key={request.id}>
+                      <TableCell>
+                        <p className="font-medium">{request.emergencyType}</p>
+                        <p className="text-xs text-muted-foreground">{request.details.slice(0, 90)}</p>
+                      </TableCell>
+                      <TableCell>{request.severityLevel}</TableCell>
+                      <TableCell>{request.peopleCount}</TableCell>
+                      <TableCell>
+                        <p>{request.locationText ?? 'N/A'}</p>
+                        <p className="text-xs text-muted-foreground">{formatCoordinates(request)}</p>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={RESCUE_REQUEST_STATUS_BADGE_CLASSES[request.status]}>
+                          {RESCUE_REQUEST_STATUS_LABELS[request.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{formatTimestamp(request.updatedAt)}</TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-2">
+                          <Link to={request.id} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                            Details
+                          </Link>
+                          <Label className="sr-only" htmlFor={`status-${request.id}`}>
+                            Status
+                          </Label>
+                          <Select
+                            id={`status-${request.id}`}
+                            value={request.status}
+                            disabled={isUpdatingThisRequest}
+                            onChange={(event) =>
+                              void onStatusChange(request.id, event.target.value as RescueRequestStatus)
+                            }
+                            className="h-8 min-w-36 text-xs"
+                          >
+                            {RESCUE_REQUEST_STATUSES.map((status) => (
+                              <option key={status} value={status}>
+                                {RESCUE_REQUEST_STATUS_LABELS[status]}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
           {!requestsQuery.isLoading && filteredRequests.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No rescue requests in this filter.</p>
+            <p className="mt-3 text-sm text-muted-foreground">No rescue requests in this filter.</p>
           ) : null}
-        </div>
+          <div className="mt-3">
+            <DataTablePagination
+              page={page}
+              pageCount={pageCount}
+              totalCount={filteredRequests.length}
+              pageSize={pageSize}
+              onPageChange={setPage}
+            />
+          </div>
         </CardContent>
       </Card>
     </section>

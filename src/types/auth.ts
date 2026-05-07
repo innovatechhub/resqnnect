@@ -16,6 +16,7 @@ export interface AuthState {
   status: AuthStatus;
   isConfigured: boolean;
   missingEnvKeys: string[];
+  envIssues: string[];
   session: Session | null;
   user: User | null;
   profile: UserProfile | null;

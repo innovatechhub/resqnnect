@@ -150,6 +150,20 @@ export async function listRescueRequests(
   return (data ?? []).map(mapRescueRequestRow);
 }
 
+export async function getRescueRequest(client: SupabaseClient, requestId: string): Promise<RescueRequestRecord> {
+  const { data, error } = await client
+    .from('rescue_requests')
+    .select(RESCUE_REQUEST_COLUMNS)
+    .eq('id', requestId)
+    .single<RescueRequestRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return mapRescueRequestRow(data);
+}
+
 export async function createRescueRequest(
   client: SupabaseClient,
   input: CreateRescueRequestInput,

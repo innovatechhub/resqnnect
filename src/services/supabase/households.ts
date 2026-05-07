@@ -203,6 +203,29 @@ export async function createHousehold(client: SupabaseClient, input: CreateHouse
     status: input.status,
   };
 
+  const { data: rpcData, error: rpcError } = await client.rpc('create_household', {
+    target_barangay_id: input.barangayId,
+    target_household_code: input.householdCode,
+    target_address_text: input.addressText,
+    target_latitude: input.latitude,
+    target_longitude: input.longitude,
+    target_qr_code: input.qrCode,
+    target_status: input.status,
+  });
+
+  if (!rpcError && rpcData) {
+    return mapHouseholdRow(rpcData as HouseholdRow);
+  }
+
+  const rpcMessage = typeof rpcError?.message === 'string' ? rpcError.message : '';
+  const rpcCode = typeof rpcError?.code === 'string' ? rpcError.code : '';
+  const isRpcUnavailable =
+    rpcCode === 'PGRST202' || rpcCode === '42883' || rpcMessage.toLowerCase().includes('create_household');
+
+  if (rpcError && !isRpcUnavailable) {
+    throw rpcError;
+  }
+
   const { data, error } = await client
     .from('households')
     .insert(payload)

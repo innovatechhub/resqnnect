@@ -108,3 +108,26 @@ Mission 1 + Mission 2 foundation for ResQnnect, a real-time calamity rescue and 
   - `src/services/supabase/liveLocation.ts`
 - Realtime refresh is wired through Supabase Postgres changes on `rescuer_locations`.
 - Details: `docs/mission-8-live-location.md`.
+
+## Mission 9 Notes
+- Barangay evacuee verification is active at `/app/barangay/evacuee-verification`.
+- Household QR profile is active at `/app/household/qr-profile`.
+- QR generation uses `qrcode`; camera scanning uses `html5-qrcode`.
+- Verification logs are written to `qr_verifications`, with duplicate/conflict handling.
+- Details: `docs/mission-9-evacuee-verification.md`.
+
+## Mission 10 Notes
+- Evacuation center management is active at `/app/admin/evacuation-centers`.
+- Household evacuation status is active at `/app/household/evacuation-status`.
+- Relief inventory and distribution workflows are active at:
+  - `/app/admin/relief`
+  - `/app/barangay/relief`
+- Details: `docs/mission-10-evacuation-relief.md`.
+
+## Mission 11 Notes
+- Reports and analytics are active at:
+  - `/app/admin/reports`
+  - `/app/barangay/reports`
+- Report charts use Recharts and include CSV export.
+- Role dashboards now load live Supabase metrics instead of static placeholders.
+- Details: `docs/mission-11-reports-analytics.md`.
