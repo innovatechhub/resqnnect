@@ -130,18 +130,53 @@ export function HouseholdRescueRequestsPage() {
     }
     setGeoStatus('acquiring');
     setGeoError(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setValue('latitude', position.coords.latitude.toFixed(7), { shouldValidate: true });
-        setValue('longitude', position.coords.longitude.toFixed(7), { shouldValidate: true });
-        setGeoStatus('acquired');
-      },
-      (err) => {
+
+    const onSuccess = (position: GeolocationPosition) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      setValue('latitude', lat.toFixed(7), { shouldValidate: true });
+      setValue('longitude', lng.toFixed(7), { shouldValidate: true });
+      setGeoStatus('acquired');
+
+      // Reverse geocode to pre-fill location text
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.display_name) {
+            const addr = data.address ?? {};
+            const parts = [addr.road, addr.village ?? addr.suburb ?? addr.neighbourhood, addr.city ?? addr.municipality ?? addr.town]
+              .filter(Boolean)
+              .join(', ');
+            setValue('locationText', parts || data.display_name, { shouldValidate: true });
+          }
+        })
+        .catch(() => {
+          // Reverse geocoding failed silently — user can type manually
+        });
+    };
+
+    const onError = (err: GeolocationPositionError) => {
+      // High-accuracy timed out or failed — retry with network/cached location
+      if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
+        navigator.geolocation.getCurrentPosition(
+          onSuccess,
+          (fallbackErr) => {
+            setGeoStatus('error');
+            setGeoError(fallbackErr.message || 'Unable to retrieve your location. Please enter coordinates manually.');
+          },
+          { enableHighAccuracy: false, timeout: 15_000, maximumAge: 60_000 },
+        );
+      } else {
         setGeoStatus('error');
-        setGeoError(err.message ?? 'Unable to retrieve your location.');
-      },
-      { enableHighAccuracy: true, timeout: 10_000 },
-    );
+        setGeoError(err.message || 'Location permission denied. Please enable location access and retry.');
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+      enableHighAccuracy: true,
+      timeout: 15_000,
+      maximumAge: 30_000,
+    });
   }, [setValue]);
 
   useEffect(() => {
