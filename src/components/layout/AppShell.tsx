@@ -9,11 +9,13 @@ import {
   LayoutDashboard,
   MapPinned,
   Menu,
+  Moon,
   PackageCheck,
   QrCode,
   ScanLine,
   ShieldPlus,
   Siren,
+  Sun,
   Tent,
   UserCog,
   UsersRound,
@@ -27,9 +29,12 @@ import { useAuth } from '../../features/auth/useAuth';
 import { cn } from '../../lib/utils';
 import brandLogo from '../../assets/logo.png';
 import { EnvBanner } from '../system/EnvBanner';
+import { ToastContainer } from '../ui/toast';
+import { Breadcrumb } from '../system/Breadcrumb';
+import { NotificationBell } from '../system/NotificationBell';
+import { CommandPalette } from '../system/CommandPalette';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Card } from '../ui/card';
 
 const NAV_ICON_MAP: Record<string, LucideIcon> = {
   'bar-chart-3': BarChart3,
@@ -57,10 +62,17 @@ export function AppShell() {
   const navLinks = ROLE_NAV_LINKS[currentRole];
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
     const storedValue = window.localStorage.getItem(NAV_COLLAPSE_STORAGE_KEY);
     setIsNavCollapsed(storedValue === 'true');
+
+    const storedDarkMode = window.localStorage.getItem('resqnnect-dark-mode') === 'true';
+    setIsDarkMode(storedDarkMode);
+    if (storedDarkMode) {
+      document.documentElement.classList.add('dark');
+    }
   }, []);
 
   useEffect(() => {
@@ -75,15 +87,33 @@ export function AppShell() {
     setIsNavCollapsed((value) => !value);
   }
 
+  function toggleDarkMode() {
+    const newDarkMode = !isDarkMode;
+    setIsDarkMode(newDarkMode);
+    window.localStorage.setItem('resqnnect-dark-mode', String(newDarkMode));
+    if (newDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }
+
   function renderNavCard(isMobile: boolean) {
     return (
-      <Card
+      <aside
         className={cn(
-          'h-fit border-border/80 bg-card/95 shadow-card',
-          isNavCollapsed && !isMobile ? 'p-3' : 'p-4',
+          isMobile
+            ? 'h-fit rounded-xl border border-border/80 bg-card/95 p-4 shadow-card'
+            : 'h-full border-r border-border bg-card',
+          !isMobile && (isNavCollapsed ? 'p-3' : 'p-4'),
         )}
       >
-        <div className="mb-4 flex items-center justify-between gap-2">
+        <div
+          className={cn(
+            'mb-4 flex items-center gap-2',
+            isNavCollapsed && !isMobile ? 'justify-center' : 'justify-between',
+          )}
+        >
           {!isNavCollapsed || isMobile ? (
             <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Role Navigation</p>
           ) : (
@@ -112,7 +142,7 @@ export function AppShell() {
                 title={isNavCollapsed && !isMobile ? item.label : undefined}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center rounded-md text-sm font-medium transition-colors',
+                    'flex w-full items-center rounded-md text-sm font-medium transition-colors',
                     isNavCollapsed && !isMobile ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm'
@@ -126,14 +156,16 @@ export function AppShell() {
             );
           })}
         </nav>
-      </Card>
+      </aside>
     );
   }
 
   return (
     <div className="min-h-screen">
+      <ToastContainer />
+      {auth.status === 'authenticated' && <CommandPalette />}
       <header className="sticky top-0 z-30 border-b border-border bg-card/85 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <div className="flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2">
             <Button
               type="button"
@@ -142,16 +174,6 @@ export function AppShell() {
               onClick={() => setIsMobileNavOpen(true)}
               className="lg:hidden"
               title="Open navigation"
-            >
-              <Menu className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={toggleNavCollapsed}
-              className="hidden lg:inline-flex"
-              title={isNavCollapsed ? 'Expand navigation' : 'Collapse navigation'}
             >
               <Menu className="h-4 w-4" />
             </Button>
@@ -174,6 +196,16 @@ export function AppShell() {
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               {ROLE_LABELS[currentRole]}
             </Badge>
+            {auth.status === 'authenticated' && <NotificationBell />}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={toggleDarkMode}
+              title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
             {auth.status === 'authenticated' ? (
               <Button type="button" variant="outline" size="sm" onClick={handleSignOut}>
                 Sign Out
@@ -186,7 +218,7 @@ export function AppShell() {
       <EnvBanner />
       {auth.warningMessage ? (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 sm:px-6">
-          <div className="mx-auto w-full max-w-7xl">{auth.warningMessage}</div>
+          <div className="w-full">{auth.warningMessage}</div>
         </div>
       ) : null}
 
@@ -200,16 +232,43 @@ export function AppShell() {
 
       <div
         className={cn(
-          'mx-auto grid w-full max-w-7xl grid-cols-1 gap-4 px-4 py-4 sm:px-6',
-          isNavCollapsed ? 'lg:grid-cols-[84px_1fr]' : 'lg:grid-cols-[280px_1fr]',
+          'grid w-full grid-cols-1 pb-16 lg:pb-0 lg:min-h-[calc(100vh-73px)]',
+          isNavCollapsed ? 'lg:grid-cols-[84px_1fr]' : 'lg:grid-cols-[260px_1fr]',
         )}
       >
         <div className="hidden lg:block">{renderNavCard(false)}</div>
 
-        <main className="rounded-xl border border-border/80 bg-card/95 p-4 shadow-card sm:p-6">
+        <main className="bg-card p-4 sm:p-6">
+          <Breadcrumb />
           <Outlet />
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-card/95 backdrop-blur lg:hidden">
+        <div className="flex items-center justify-around px-2 py-1">
+          {navLinks.slice(0, 4).map((item) => {
+            const Icon = NAV_ICON_MAP[item.icon] ?? LayoutDashboard;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  cn(
+                    'flex flex-col items-center gap-0.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors min-w-[60px]',
+                    isActive
+                      ? 'text-primary'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )
+                }
+              >
+                <Icon className="h-5 w-5" />
+                <span className="truncate text-[10px]">{item.label.split(' ')[0]}</span>
+              </NavLink>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }

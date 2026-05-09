@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Siren, Zap, Building2, Users, AlertTriangle, Gauge } from 'lucide-react';
 
 import { DashboardBarChart } from '../components/system/DashboardBarChart';
 import { SectionHeader } from '../components/system/SectionHeader';
 import { StatCard } from '../components/system/StatCard';
+import { EmptyState } from '../components/system/EmptyState';
 import { StatCardSkeleton, ListCardSkeleton } from '../components/system/SkeletonCard';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Badge } from '../components/ui/badge';
@@ -56,12 +57,48 @@ export function MdrrmoDashboardPage() {
     0,
   );
   const adminStats = [
-    { label: 'Active Rescue Requests', value: String(metrics?.activeRescueRequests ?? '-') },
-    { label: 'Active Mission Backlog', value: String(missionBacklog) },
-    { label: 'Open Evacuation Centers', value: String(metrics?.openEvacuationCenters ?? '-') },
-    { label: 'Evacuation Occupancy', value: String(metrics?.evacuationOccupancy ?? '-') },
-    { label: 'Low Stock Items', value: String(metrics?.lowStockItems ?? '-') },
-    { label: 'Center Utilization', value: utilizationRate === null ? '-' : `${utilizationRate.toFixed(0)}%` },
+    {
+      label: 'Active Rescue Requests',
+      value: String(metrics?.activeRescueRequests ?? '-'),
+      icon: Siren,
+      iconColor: 'text-rose-600',
+      iconBg: 'bg-rose-100',
+    },
+    {
+      label: 'Active Mission Backlog',
+      value: String(missionBacklog),
+      icon: Zap,
+      iconColor: 'text-amber-600',
+      iconBg: 'bg-amber-100',
+    },
+    {
+      label: 'Open Evacuation Centers',
+      value: String(metrics?.openEvacuationCenters ?? '-'),
+      icon: Building2,
+      iconColor: 'text-blue-600',
+      iconBg: 'bg-blue-100',
+    },
+    {
+      label: 'Evacuation Occupancy',
+      value: String(metrics?.evacuationOccupancy ?? '-'),
+      icon: Users,
+      iconColor: 'text-teal-600',
+      iconBg: 'bg-teal-100',
+    },
+    {
+      label: 'Low Stock Items',
+      value: String(metrics?.lowStockItems ?? '-'),
+      icon: AlertTriangle,
+      iconColor: 'text-orange-600',
+      iconBg: 'bg-orange-100',
+    },
+    {
+      label: 'Center Utilization',
+      value: utilizationRate === null ? '-' : `${utilizationRate.toFixed(0)}%`,
+      icon: Gauge,
+      iconColor: 'text-purple-600',
+      iconBg: 'bg-purple-100',
+    },
   ];
   const requestChartData = Object.entries(report?.requestStatusCounts ?? {}).map(([label, value]) => ({
     label: prettyStatus(label),
@@ -149,7 +186,16 @@ export function MdrrmoDashboardPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {isLoading
           ? Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
-          : adminStats.map((item) => <StatCard key={item.label} label={item.label} value={item.value} />)}
+          : adminStats.map((item) => (
+              <StatCard
+                key={item.label}
+                label={item.label}
+                value={item.value}
+                icon={item.icon}
+                iconColor={item.iconColor}
+                iconBg={item.iconBg}
+              />
+            ))}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -222,9 +268,12 @@ export function MdrrmoDashboardPage() {
                 </div>
               ))
             ) : (
-              <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-5 text-center">
-                <p className="text-sm text-muted-foreground">No active rescue requests in queue.</p>
-              </div>
+              <EmptyState
+                icon={Siren}
+                title="No active rescue requests"
+                description="The queue is clear. Great work!"
+                action={{ label: 'View Rescue Requests', to: '/app/admin/rescue-requests' }}
+              />
             )}
           </CardContent>
         </Card>
@@ -259,9 +308,12 @@ export function MdrrmoDashboardPage() {
                 </div>
               ))
             ) : (
-              <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-5 text-center">
-                <p className="text-sm text-muted-foreground">No low-stock or depleted items right now.</p>
-              </div>
+              <EmptyState
+                icon={AlertTriangle}
+                title="All supplies in stock"
+                description="Relief inventory levels are healthy."
+                action={{ label: 'Manage Inventory', to: '/app/admin/relief' }}
+              />
             )}
           </CardContent>
         </Card>

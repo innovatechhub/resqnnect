@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Users, Siren, Zap, CheckSquare, AlertTriangle, Gauge } from 'lucide-react';
 
 import { DashboardBarChart } from '../components/system/DashboardBarChart';
+import { EmptyState } from '../components/system/EmptyState';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { StatCard } from '../components/system/StatCard';
@@ -59,12 +60,48 @@ export function BarangayDashboardPage() {
     0,
   );
   const barangayStats = [
-    { label: 'Registered Households', value: String(metrics?.registeredHouseholds ?? '-') },
-    { label: 'Open Rescue Requests', value: String(metrics?.activeRescueRequests ?? '-') },
-    { label: 'Active Mission Backlog', value: String(missionBacklog) },
-    { label: 'Verification Logs', value: String(metrics?.verificationLogs ?? '-') },
-    { label: 'Low Stock Items', value: String(metrics?.lowStockItems ?? '-') },
-    { label: 'Center Utilization', value: utilizationRate === null ? '-' : `${utilizationRate.toFixed(0)}%` },
+    {
+      label: 'Registered Households',
+      value: String(metrics?.registeredHouseholds ?? '-'),
+      icon: Users,
+      iconColor: 'text-blue-600',
+      iconBg: 'bg-blue-100',
+    },
+    {
+      label: 'Open Rescue Requests',
+      value: String(metrics?.activeRescueRequests ?? '-'),
+      icon: Siren,
+      iconColor: 'text-rose-600',
+      iconBg: 'bg-rose-100',
+    },
+    {
+      label: 'Active Mission Backlog',
+      value: String(missionBacklog),
+      icon: Zap,
+      iconColor: 'text-amber-600',
+      iconBg: 'bg-amber-100',
+    },
+    {
+      label: 'Verification Logs',
+      value: String(metrics?.verificationLogs ?? '-'),
+      icon: CheckSquare,
+      iconColor: 'text-emerald-600',
+      iconBg: 'bg-emerald-100',
+    },
+    {
+      label: 'Low Stock Items',
+      value: String(metrics?.lowStockItems ?? '-'),
+      icon: AlertTriangle,
+      iconColor: 'text-orange-600',
+      iconBg: 'bg-orange-100',
+    },
+    {
+      label: 'Center Utilization',
+      value: utilizationRate === null ? '-' : `${utilizationRate.toFixed(0)}%`,
+      icon: Gauge,
+      iconColor: 'text-purple-600',
+      iconBg: 'bg-purple-100',
+    },
   ];
   const requestChartData = Object.entries(report?.requestStatusCounts ?? {}).map(([label, value]) => ({
     label: prettyStatus(label),
@@ -156,7 +193,16 @@ export function BarangayDashboardPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {isLoading
           ? Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
-          : barangayStats.map((item) => <StatCard key={item.label} label={item.label} value={item.value} />)}
+          : barangayStats.map((item) => (
+              <StatCard
+                key={item.label}
+                label={item.label}
+                value={item.value}
+                icon={item.icon}
+                iconColor={item.iconColor}
+                iconBg={item.iconBg}
+              />
+            ))}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
@@ -248,9 +294,12 @@ export function BarangayDashboardPage() {
                 </div>
               ))
             ) : (
-              <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-5 text-center">
-                <p className="text-sm text-muted-foreground">No active rescue requests in queue.</p>
-              </div>
+              <EmptyState
+                icon={Siren}
+                title="No active rescue requests"
+                description="The queue is clear. Great work!"
+                action={{ label: 'View Rescue Requests', to: '/app/barangay/rescue-requests' }}
+              />
             )}
           </CardContent>
         </Card>
@@ -285,9 +334,12 @@ export function BarangayDashboardPage() {
                 </div>
               ))
             ) : (
-              <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-5 text-center">
-                <p className="text-sm text-muted-foreground">No low-stock or depleted items right now.</p>
-              </div>
+              <EmptyState
+                icon={AlertTriangle}
+                title="All supplies in stock"
+                description="Relief inventory levels are healthy."
+                action={{ label: 'Manage Inventory', to: '/app/barangay/relief' }}
+              />
             )}
           </CardContent>
         </Card>

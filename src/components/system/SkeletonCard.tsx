@@ -35,3 +35,26 @@ export function ListCardSkeleton({ rows = 3 }: { rows?: number }) {
   );
 }
 
+export function TableSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="border border-border/70 rounded-lg overflow-hidden">
+      <div className="bg-muted/30 border-b border-border/70 px-4 py-3 flex gap-4">
+        <Skeleton className="h-4 w-12" />
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-4 flex-1" />
+        <Skeleton className="h-4 w-16" />
+      </div>
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={index} className="border-b border-border/50 px-4 py-3 flex gap-4 items-center">
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 flex-1" />
+          <Skeleton className="h-4 w-16" />
+        </div>
+      ))}
+    </div>
+  );
+}
+

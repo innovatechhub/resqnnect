@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Siren, QrCode, MapPin } from 'lucide-react';
+import { RefreshCw, Siren, QrCode, MapPin, AlertTriangle, CheckSquare, Building2 } from 'lucide-react';
 
 import { DashboardBarChart } from '../components/system/DashboardBarChart';
 import { StatCard } from '../components/system/StatCard';
@@ -45,10 +45,34 @@ export function HouseholdDashboardPage() {
   const metrics = metricsQuery.data;
 
   const householdStats = [
-    { label: 'My Rescue Requests', value: metrics?.rescueRequests ?? '-' },
-    { label: 'Active Requests', value: metrics?.activeRescueRequests ?? '-' },
-    { label: 'QR Verification Logs', value: metrics?.verificationLogs ?? '-' },
-    { label: 'Open Centers', value: metrics?.openEvacuationCenters ?? '-' },
+    {
+      label: 'My Rescue Requests',
+      value: metrics?.rescueRequests ?? '-',
+      icon: Siren,
+      iconColor: 'text-rose-600',
+      iconBg: 'bg-rose-100',
+    },
+    {
+      label: 'Active Requests',
+      value: metrics?.activeRescueRequests ?? '-',
+      icon: AlertTriangle,
+      iconColor: 'text-amber-600',
+      iconBg: 'bg-amber-100',
+    },
+    {
+      label: 'QR Verification Logs',
+      value: metrics?.verificationLogs ?? '-',
+      icon: CheckSquare,
+      iconColor: 'text-emerald-600',
+      iconBg: 'bg-emerald-100',
+    },
+    {
+      label: 'Open Centers',
+      value: metrics?.openEvacuationCenters ?? '-',
+      icon: Building2,
+      iconColor: 'text-blue-600',
+      iconBg: 'bg-blue-100',
+    },
   ];
   const chartData = [
     { label: 'My Requests', value: metrics?.rescueRequests ?? 0, color: '#0f766e' },
@@ -88,7 +112,16 @@ export function HouseholdDashboardPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {isLoading
           ? Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
-          : householdStats.map((item) => <StatCard key={item.label} label={item.label} value={String(item.value)} />)}
+          : householdStats.map((item) => (
+              <StatCard
+                key={item.label}
+                label={item.label}
+                value={String(item.value)}
+                icon={item.icon}
+                iconColor={item.iconColor}
+                iconBg={item.iconBg}
+              />
+            ))}
       </div>
 
       <Card>

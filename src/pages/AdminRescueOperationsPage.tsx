@@ -2,9 +2,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { ClipboardList } from 'lucide-react';
 
 import { RESCUE_MISSION_STATUSES, type RescueMissionStatus } from '../constants/status';
 import { SectionHeader } from '../components/system/SectionHeader';
+import { EmptyState } from '../components/system/EmptyState';
+import { TableSkeleton } from '../components/system/SkeletonCard';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -20,10 +23,11 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableHeaderCell,
   TableRow,
+  SortableHeader,
 } from '../components/ui/table';
 import { Textarea } from '../components/ui/textarea';
+import { useToast } from '../components/ui/toast';
 import { useAuth } from '../features/auth/useAuth';
 import {
   RESCUE_MISSION_STATUS_BADGE_CLASSES,
@@ -80,6 +84,7 @@ export function AdminRescueOperationsPage() {
   const auth = useAuth();
   const client = useMemo(() => getSupabaseClient(), []);
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [actionError, setActionError] = useState<string | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -141,6 +146,7 @@ export function AdminRescueOperationsPage() {
       reset(INITIAL_RESCUE_ASSIGNMENT_FORM_VALUES);
       setActionError(null);
       setIsCreateDialogOpen(false);
+      toast.success('Assignment created', 'Rescue team has been dispatched successfully.');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: assignmentsQueryKey }),
         queryClient.invalidateQueries({ queryKey: requestsQueryKey }),
@@ -160,6 +166,7 @@ export function AdminRescueOperationsPage() {
     },
     onSuccess: async () => {
       setActionError(null);
+      toast.success('Status updated', 'Mission status has been updated.');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: assignmentsQueryKey }),
         queryClient.invalidateQueries({ queryKey: requestsQueryKey }),
@@ -235,7 +242,9 @@ export function AdminRescueOperationsPage() {
     try {
       await createAssignmentMutation.mutateAsync(values);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Failed to create rescue assignment.');
+      const message = error instanceof Error ? error.message : 'Failed to create rescue assignment.';
+      setActionError(message);
+      toast.error('Assignment failed', message);
     }
   }
 
@@ -243,7 +252,9 @@ export function AdminRescueOperationsPage() {
     try {
       await updateAssignmentStatusMutation.mutateAsync({ assignmentId, status });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Failed to update assignment status.');
+      const message = error instanceof Error ? error.message : 'Failed to update assignment status.';
+      setActionError(message);
+      toast.error('Update failed', message);
     }
   }
 
@@ -295,20 +306,26 @@ export function AdminRescueOperationsPage() {
             placeholder="Search request, team, rescuer, or notes"
             summary={`${filteredAssignments.length} assignments`}
           />
+          {assignmentsQuery.isLoading ? (
+            <TableSkeleton rows={5} />
+          ) : (
           <TableContainer>
             <Table>
               <TableHead>
                 <tr>
-                  <TableHeaderCell>Request</TableHeaderCell>
-                  <TableHeaderCell>Rescuer</TableHeaderCell>
-                  <TableHeaderCell>Team</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>
-                    <button type="button" onClick={() => setSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
-                      Updated
-                    </button>
-                  </TableHeaderCell>
-                  <TableHeaderCell className="text-right">Lifecycle</TableHeaderCell>
+                  <SortableHeader sortKey="request" currentSort={null}>Request</SortableHeader>
+                  <SortableHeader sortKey="rescuer" currentSort={null}>Rescuer</SortableHeader>
+                  <SortableHeader sortKey="team" currentSort={null}>Team</SortableHeader>
+                  <SortableHeader sortKey="status" currentSort={null}>Status</SortableHeader>
+                  <SortableHeader
+                    sortKey="updatedAt"
+                    currentSort="updatedAt"
+                    currentDir={sortDirection}
+                    onSort={(_, dir) => setSortDirection(dir ?? 'desc')}
+                  >
+                    Updated
+                  </SortableHeader>
+                  <SortableHeader sortKey="lifecycle" currentSort={null} className="text-right">Lifecycle</SortableHeader>
                 </tr>
               </TableHead>
               <TableBody>
@@ -359,9 +376,14 @@ export function AdminRescueOperationsPage() {
               </TableBody>
             </Table>
           </TableContainer>
-          {!assignmentsQuery.isLoading && (assignmentsQuery.data ?? []).length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No assignments yet.</p>
-          ) : null}
+          )}
+          {!assignmentsQuery.isLoading && (assignmentsQuery.data ?? []).length === 0 && (
+            <EmptyState
+              icon={ClipboardList}
+              title="No assignments yet"
+              description="Create the first rescue assignment using the button above."
+            />
+          )}
           <div className="mt-3">
             <DataTablePagination
               page={page}

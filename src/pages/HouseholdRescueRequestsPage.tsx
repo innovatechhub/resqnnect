@@ -354,10 +354,15 @@ export function HouseholdRescueRequestsPage() {
                     </TableCell>
                     <TableCell>{formatTimestamp(item.updatedAt)}</TableCell>
                     <TableCell>
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
                         <Link to={`../rescue-requests/${item.id}`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                           Details
                         </Link>
+                        {(item.status === 'assigned' || item.status === 'in_progress') ? (
+                          <Link to={`${item.id}/map`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                            Track
+                          </Link>
+                        ) : null}
                       </div>
                     </TableCell>
                   </TableRow>

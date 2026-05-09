@@ -2,8 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { Siren } from 'lucide-react';
 import { RESCUE_REQUEST_STATUSES, type RescueRequestStatus } from '../constants/status';
 import { SectionHeader } from '../components/system/SectionHeader';
+import { EmptyState } from '../components/system/EmptyState';
+import { TableSkeleton } from '../components/system/SkeletonCard';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Badge } from '../components/ui/badge';
 import { Button, buttonVariants } from '../components/ui/button';
@@ -19,7 +22,9 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  SortableHeader,
 } from '../components/ui/table';
+import { useToast } from '../components/ui/toast';
 import { useAuth } from '../features/auth/useAuth';
 import {
   RESCUE_REQUEST_STATUS_BADGE_CLASSES,
@@ -64,6 +69,7 @@ function RescueRequestsCommandPage({ title, summary, scope }: CommandPageConfig)
   const auth = useAuth();
   const client = useMemo(() => getSupabaseClient(), []);
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [statusFilter, setStatusFilter] = useState<'all' | RescueRequestStatus>('all');
   const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -102,7 +108,12 @@ function RescueRequestsCommandPage({ title, summary, scope }: CommandPageConfig)
     },
     onSuccess: async () => {
       setActionError(null);
+      toast.success('Status updated', 'Rescue request status has been updated.');
       await queryClient.invalidateQueries({ queryKey });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to update request status.';
+      toast.error('Update failed', message);
     },
   });
 
@@ -213,6 +224,9 @@ function RescueRequestsCommandPage({ title, summary, scope }: CommandPageConfig)
             placeholder="Search emergency, location, details, or requester"
             summary={`${filteredRequests.length} incidents`}
           />
+          {requestsQuery.isLoading ? (
+            <TableSkeleton rows={5} />
+          ) : (
           <TableContainer>
             <Table>
               <TableHead>
@@ -222,11 +236,14 @@ function RescueRequestsCommandPage({ title, summary, scope }: CommandPageConfig)
                   <TableHeaderCell>People</TableHeaderCell>
                   <TableHeaderCell>Location</TableHeaderCell>
                   <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>
-                    <button type="button" onClick={() => setSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
-                      Updated
-                    </button>
-                  </TableHeaderCell>
+                  <SortableHeader
+                    sortKey="updatedAt"
+                    currentSort="updatedAt"
+                    currentDir={sortDirection}
+                    onSort={(_, dir) => setSortDirection(dir ?? 'desc')}
+                  >
+                    Updated
+                  </SortableHeader>
                   <TableHeaderCell className="text-right">Actions</TableHeaderCell>
                 </tr>
               </TableHead>
@@ -284,9 +301,14 @@ function RescueRequestsCommandPage({ title, summary, scope }: CommandPageConfig)
               </TableBody>
             </Table>
           </TableContainer>
-          {!requestsQuery.isLoading && filteredRequests.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No rescue requests in this filter.</p>
-          ) : null}
+          )}
+          {!requestsQuery.isLoading && filteredRequests.length === 0 && (
+            <EmptyState
+              icon={Siren}
+              title="No rescue requests"
+              description="No requests match your current filter or search."
+            />
+          )}
           <div className="mt-3">
             <DataTablePagination
               page={page}

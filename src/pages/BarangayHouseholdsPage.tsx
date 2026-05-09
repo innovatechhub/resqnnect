@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import QRCode from 'qrcode';
-import { Download, MapPinned, RefreshCw } from 'lucide-react';
+import { Download, MapPinned, RefreshCw, Home, Users } from 'lucide-react';
 
 import { HOUSEHOLD_STATUSES } from '../constants/households';
 import { LocationPickerDialog } from '../components/system/LocationPickerDialog';
 import { SectionHeader } from '../components/system/SectionHeader';
+import { EmptyState } from '../components/system/EmptyState';
+import { TableSkeleton } from '../components/system/SkeletonCard';
 import { Alert, AlertDescription } from '../components/ui/alert';
+import { useToast } from '../components/ui/toast';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -23,6 +26,7 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  SortableHeader,
 } from '../components/ui/table';
 import { Textarea } from '../components/ui/textarea';
 import { useAuth } from '../features/auth/useAuth';
@@ -180,6 +184,7 @@ function toMemberFormValues(item: HouseholdMemberRecord): HouseholdMemberFormVal
 export function BarangayHouseholdsPage() {
   const auth = useAuth();
   const client = useMemo(() => getSupabaseClient(), []);
+  const toast = useToast();
 
   const [households, setHouseholds] = useState<HouseholdRecord[]>([]);
   const [householdsError, setHouseholdsError] = useState<string | null>(null);
@@ -403,6 +408,7 @@ export function BarangayHouseholdsPage() {
       setIsHouseholdDialogOpen(false);
       setHouseholdForm(INITIAL_HOUSEHOLD_FORM_VALUES);
       setEditingHouseholdId(null);
+      toast.success(editingHouseholdId ? 'Household updated' : 'Household created', 'Household record has been saved successfully.');
       await refreshHouseholds(saved.id);
     } catch (error) {
       const message = toErrorMessage(error, 'Failed to save household.');
@@ -413,6 +419,7 @@ export function BarangayHouseholdsPage() {
       } else {
         setHouseholdActionError(message);
       }
+      toast.error('Save failed', message);
     } finally {
       setIsSubmittingHousehold(false);
     }
@@ -425,9 +432,12 @@ export function BarangayHouseholdsPage() {
     try {
       await deleteHousehold(client, item.id);
       setPendingDeleteHousehold(null);
+      toast.success('Household deleted', 'The household record has been removed.');
       await refreshHouseholds();
     } catch (error) {
-      setHouseholdActionError(toErrorMessage(error, 'Failed to delete household.'));
+      const message = toErrorMessage(error, 'Failed to delete household.');
+      setHouseholdActionError(message);
+      toast.error('Delete failed', message);
     }
   }
 
@@ -490,9 +500,12 @@ export function BarangayHouseholdsPage() {
       setIsMemberDialogOpen(false);
       setMemberForm(INITIAL_MEMBER_FORM_VALUES);
       setEditingMemberId(null);
+      toast.success(editingMemberId ? 'Member updated' : 'Member added', 'Household member record has been saved.');
       await refreshMembers(selectedHouseholdId);
     } catch (error) {
-      setMemberActionError(toErrorMessage(error, 'Failed to save member.'));
+      const message = toErrorMessage(error, 'Failed to save member.');
+      setMemberActionError(message);
+      toast.error('Save failed', message);
     } finally {
       setIsSubmittingMember(false);
     }
@@ -505,11 +518,14 @@ export function BarangayHouseholdsPage() {
     try {
       await deleteHouseholdMember(client, item.id);
       setPendingDeleteMember(null);
+      toast.success('Member removed', 'Household member has been deleted.');
       if (selectedHouseholdId) {
         await refreshMembers(selectedHouseholdId);
       }
     } catch (error) {
-      setMemberActionError(toErrorMessage(error, 'Failed to delete member.'));
+      const message = toErrorMessage(error, 'Failed to delete member.');
+      setMemberActionError(message);
+      toast.error('Delete failed', message);
     }
   }
 
@@ -561,15 +577,21 @@ export function BarangayHouseholdsPage() {
             placeholder="Search household code, address, or QR"
             summary={`${filteredHouseholds.length} household records`}
           />
+          {isLoadingHouseholds ? (
+            <TableSkeleton rows={5} />
+          ) : (
           <TableContainer>
             <Table>
               <TableHead>
                 <tr>
-                  <TableHeaderCell>
-                    <button type="button" onClick={() => setHouseholdSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
-                      Household / Address
-                    </button>
-                  </TableHeaderCell>
+                  <SortableHeader
+                    sortKey="address"
+                    currentSort="address"
+                    currentDir={householdSortDirection}
+                    onSort={(_, dir) => setHouseholdSortDirection(dir ?? 'asc')}
+                  >
+                    Household / Address
+                  </SortableHeader>
                   <TableHeaderCell>Status</TableHeaderCell>
                   <TableHeaderCell>Coordinates</TableHeaderCell>
                   <TableHeaderCell>QR Value</TableHeaderCell>
@@ -621,9 +643,14 @@ export function BarangayHouseholdsPage() {
               </TableBody>
             </Table>
           </TableContainer>
-          {!isLoadingHouseholds && households.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No households yet.</p>
-          ) : null}
+          )}
+          {!isLoadingHouseholds && households.length === 0 && (
+            <EmptyState
+              icon={Home}
+              title="No households registered"
+              description="Create the first household record for this barangay."
+            />
+          )}
           <div className="mt-3">
             <DataTablePagination
               page={householdPage}
@@ -676,15 +703,21 @@ export function BarangayHouseholdsPage() {
             summary={`${filteredMembers.length} family members`}
             className="mb-3"
           />
+          {isLoadingMembers ? (
+            <TableSkeleton rows={4} />
+          ) : (
           <TableContainer>
             <Table>
               <TableHead>
                 <tr>
-                  <TableHeaderCell>
-                    <button type="button" onClick={() => setMemberSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
-                      Name
-                    </button>
-                  </TableHeaderCell>
+                  <SortableHeader
+                    sortKey="name"
+                    currentSort="name"
+                    currentDir={memberSortDirection}
+                    onSort={(_, dir) => setMemberSortDirection(dir ?? 'asc')}
+                  >
+                    Name
+                  </SortableHeader>
                   <TableHeaderCell>Relationship</TableHeaderCell>
                   <TableHeaderCell>Birth Date</TableHeaderCell>
                   <TableHeaderCell>Sex</TableHeaderCell>
@@ -721,8 +754,9 @@ export function BarangayHouseholdsPage() {
               </TableBody>
             </Table>
           </TableContainer>
+          )}
           {!isLoadingMembers && selectedHouseholdId && members.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No members yet for this household.</p>
+            <EmptyState icon={Users} title="No members yet" description="Add the first household member using the button above." />
           ) : null}
           {!selectedHouseholdId ? <p className="mt-3 text-sm text-muted-foreground">Select a household first.</p> : null}
           {selectedHouseholdId ? (

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, ClipboardList, MapPinned, History } from 'lucide-react';
+import { RefreshCw, ClipboardList, MapPinned, History, Zap, AlertTriangle, Building2, Package } from 'lucide-react';
 
 import { useAuth } from '../features/auth/useAuth';
 import { DashboardBarChart } from '../components/system/DashboardBarChart';
@@ -45,10 +45,34 @@ export function RescuerDashboardPage() {
   const metrics = metricsQuery.data;
 
   const rescuerStats = [
-    { label: 'Assigned Missions', value: String(metrics?.assignedMissions ?? '-') },
-    { label: 'Active Requests', value: String(metrics?.activeRescueRequests ?? '-') },
-    { label: 'Open Centers', value: String(metrics?.openEvacuationCenters ?? '-') },
-    { label: 'Relief Items', value: String(metrics?.reliefItems ?? '-') },
+    {
+      label: 'Assigned Missions',
+      value: String(metrics?.assignedMissions ?? '-'),
+      icon: ClipboardList,
+      iconColor: 'text-blue-600',
+      iconBg: 'bg-blue-100',
+    },
+    {
+      label: 'Active Requests',
+      value: String(metrics?.activeRescueRequests ?? '-'),
+      icon: AlertTriangle,
+      iconColor: 'text-rose-600',
+      iconBg: 'bg-rose-100',
+    },
+    {
+      label: 'Open Centers',
+      value: String(metrics?.openEvacuationCenters ?? '-'),
+      icon: Building2,
+      iconColor: 'text-amber-600',
+      iconBg: 'bg-amber-100',
+    },
+    {
+      label: 'Relief Items',
+      value: String(metrics?.reliefItems ?? '-'),
+      icon: Package,
+      iconColor: 'text-purple-600',
+      iconBg: 'bg-purple-100',
+    },
   ];
   const chartData = [
     { label: 'Assigned', value: metrics?.assignedMissions ?? 0, color: '#1d4ed8' },
@@ -88,7 +112,16 @@ export function RescuerDashboardPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {isLoading
           ? Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
-          : rescuerStats.map((item) => <StatCard key={item.label} label={item.label} value={item.value} />)}
+          : rescuerStats.map((item) => (
+              <StatCard
+                key={item.label}
+                label={item.label}
+                value={item.value}
+                icon={item.icon}
+                iconColor={item.iconColor}
+                iconBg={item.iconBg}
+              />
+            ))}
       </div>
 
       <Card>

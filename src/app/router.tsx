@@ -24,6 +24,8 @@ import { RescuerDashboardPage } from '../pages/RescuerDashboardPage';
 import { RescuerLiveLocationPage } from '../pages/RescuerLiveLocationPage';
 import { RescuerMissionHistoryPage, RescuerMissionsPage } from '../pages/RescuerMissionsPages';
 import { AdminRescueRequestsPage, BarangayRescueRequestsPage } from '../pages/RescueRequestsCommandPages';
+import { LiveMapPage } from '../pages/LiveMapPage';
+import { HouseholdRequestMapPage } from '../pages/HouseholdRequestMapPage';
 import { UnauthorizedPage } from '../pages/UnauthorizedPage';
 
 const appChildren: RouteObject[] = [
@@ -58,6 +60,10 @@ const appChildren: RouteObject[] = [
       {
         path: 'rescue-operations',
         element: <AdminRescueOperationsPage />,
+      },
+      {
+        path: 'live-map',
+        element: <LiveMapPage />,
       },
       {
         path: 'evacuation-centers',
@@ -104,6 +110,10 @@ const appChildren: RouteObject[] = [
       {
         path: 'rescue-requests/:requestId',
         element: <RescueRequestDetailPage />,
+      },
+      {
+        path: 'live-map',
+        element: <LiveMapPage />,
       },
       {
         path: 'evacuee-verification',
@@ -172,6 +182,10 @@ const appChildren: RouteObject[] = [
       {
         path: 'rescue-requests/:requestId',
         element: <RescueRequestDetailPage />,
+      },
+      {
+        path: 'rescue-requests/:requestId/map',
+        element: <HouseholdRequestMapPage />,
       },
       {
         path: 'qr-profile',

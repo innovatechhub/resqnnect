@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { SectionHeader } from '../components/system/SectionHeader';
+import { EmptyState } from '../components/system/EmptyState';
+import { TableSkeleton } from '../components/system/SkeletonCard';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -21,7 +23,9 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  SortableHeader,
 } from '../components/ui/table';
+import { useToast } from '../components/ui/toast';
 import { getPageCount, paginateItems, sortByKey, type SortDirection } from '../lib/table';
 import { ROLE_LABELS } from '../constants/roles';
 import { getSupabaseClient } from '../services/supabase/client';
@@ -82,6 +86,7 @@ function compactId(value: string): string {
 export function AdminUserAccessPage() {
   const client = useMemo(() => getSupabaseClient(), []);
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [page, setPage] = useState(0);
@@ -150,12 +155,19 @@ export function AdminUserAccessPage() {
         barangayId: form.barangayId || null,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, _vars, _ctx) => {
+      const isCreate = isCreateMode;
       setActionError(null);
       setIsDialogOpen(false);
       setEditingUser(null);
       setForm(blankForm);
+      toast.success(isCreate ? 'User created' : 'User updated', isCreate ? 'New user account has been created.' : 'User access settings saved.');
       await queryClient.invalidateQueries({ queryKey: ['admin-user-access'] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to save user.';
+      setActionError(message);
+      toast.error('Save failed', message);
     },
   });
 
@@ -170,7 +182,12 @@ export function AdminUserAccessPage() {
     onSuccess: async () => {
       setPendingDeleteUser(null);
       setActionError(null);
+      toast.success('User removed', 'The user account has been deleted.');
       await queryClient.invalidateQueries({ queryKey: ['admin-user-access'] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to delete user.';
+      toast.error('Delete failed', message);
     },
   });
 
@@ -274,15 +291,21 @@ export function AdminUserAccessPage() {
             placeholder="Search name, role, barangay, or profile ID"
             summary={`${filteredUsers.length} profiles`}
           />
+          {usersQuery.isLoading ? (
+            <TableSkeleton rows={5} />
+          ) : (
           <TableContainer>
             <Table>
               <TableHead>
                 <tr>
-                  <TableHeaderCell>
-                    <button type="button" onClick={() => setSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
-                      User
-                    </button>
-                  </TableHeaderCell>
+                  <SortableHeader
+                    sortKey="name"
+                    currentSort="name"
+                    currentDir={sortDirection}
+                    onSort={(_, dir) => setSortDirection(dir ?? 'asc')}
+                  >
+                    User
+                  </SortableHeader>
                   <TableHeaderCell>Role</TableHeaderCell>
                   <TableHeaderCell>Barangay</TableHeaderCell>
                   <TableHeaderCell>Approval</TableHeaderCell>
@@ -325,9 +348,14 @@ export function AdminUserAccessPage() {
               </TableBody>
             </Table>
           </TableContainer>
-          {!usersQuery.isLoading && (usersQuery.data ?? []).length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No profile rows found. Users must have a `profiles` record to be managed here.</p>
-          ) : null}
+          )}
+          {!usersQuery.isLoading && (usersQuery.data ?? []).length === 0 && (
+            <EmptyState
+              icon={Users}
+              title="No user profiles found"
+              description="Create the first user with the Add User button above."
+            />
+          )}
           <div className="mt-3">
             <DataTablePagination
               page={page}

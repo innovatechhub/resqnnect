@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MapPinned } from 'lucide-react';
+import { MapPinned, Building2, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { LocationPickerDialog } from '../components/system/LocationPickerDialog';
 import { SectionHeader } from '../components/system/SectionHeader';
+import { EmptyState } from '../components/system/EmptyState';
+import { TableSkeleton } from '../components/system/SkeletonCard';
 import { Alert, AlertDescription } from '../components/ui/alert';
+import { useToast } from '../components/ui/toast';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -22,6 +25,7 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  SortableHeader,
 } from '../components/ui/table';
 import { useAuth } from '../features/auth/useAuth';
 import { getSupabaseClient } from '../services/supabase/client';
@@ -73,6 +77,7 @@ export function EvacuationCentersPage() {
   const auth = useAuth();
   const client = useMemo(() => getSupabaseClient(), []);
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [editingCenter, setEditingCenter] = useState<EvacuationCenterRecord | null>(null);
   const [form, setForm] = useState(blankForm);
   const [isCenterDialogOpen, setIsCenterDialogOpen] = useState(false);
@@ -145,12 +150,19 @@ export function EvacuationCentersPage() {
         ? updateEvacuationCenter(client, editingCenter.id, payload)
         : createEvacuationCenter(client, payload);
     },
-    onSuccess: async () => {
+    onSuccess: async (_data) => {
+      const wasEditing = !!editingCenter;
       setActionError(null);
       setEditingCenter(null);
       setForm(blankForm);
       setIsCenterDialogOpen(false);
+      toast.success(wasEditing ? 'Center updated' : 'Center created', wasEditing ? 'Evacuation center details saved.' : 'New evacuation center has been created.');
       await queryClient.invalidateQueries({ queryKey: ['evacuation-centers'] });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Failed to save evacuation center.';
+      setActionError(message);
+      toast.error('Save failed', message);
     },
   });
   const filteredCenters = useMemo(() => {
@@ -190,7 +202,8 @@ export function EvacuationCentersPage() {
     try {
       await saveCenterMutation.mutateAsync();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Failed to save evacuation center.');
+      const message = error instanceof Error ? error.message : 'Failed to save evacuation center.';
+      setActionError(message);
     }
   }
 
@@ -273,15 +286,21 @@ export function EvacuationCentersPage() {
             placeholder="Search center name, location, or status"
             summary={`${filteredCenters.length} centers`}
           />
+          {centersQuery.isLoading ? (
+            <TableSkeleton rows={5} />
+          ) : (
           <TableContainer>
             <Table>
               <TableHead>
                 <tr>
-                  <TableHeaderCell>
-                    <button type="button" onClick={() => setCenterSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
-                      Name
-                    </button>
-                  </TableHeaderCell>
+                  <SortableHeader
+                    sortKey="name"
+                    currentSort="name"
+                    currentDir={centerSortDirection}
+                    onSort={(_, dir) => setCenterSortDirection(dir ?? 'asc')}
+                  >
+                    Name
+                  </SortableHeader>
                   <TableHeaderCell>Location</TableHeaderCell>
                   <TableHeaderCell>Status</TableHeaderCell>
                   <TableHeaderCell>Occupancy</TableHeaderCell>
@@ -314,9 +333,14 @@ export function EvacuationCentersPage() {
               </TableBody>
             </Table>
           </TableContainer>
-          {!centersQuery.isLoading && (centersQuery.data ?? []).length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No evacuation centers found.</p>
-          ) : null}
+          )}
+          {!centersQuery.isLoading && (centersQuery.data ?? []).length === 0 && (
+            <EmptyState
+              icon={Building2}
+              title="No evacuation centers"
+              description="Create the first center using the New Center button above."
+            />
+          )}
           <div className="mt-3">
             <DataTablePagination
               page={centerPage}
@@ -342,6 +366,9 @@ export function EvacuationCentersPage() {
               summary={`${filteredEvacuees.length} evacuee records`}
               className="mb-3"
             />
+            {evacueesQuery.isLoading ? (
+              <TableSkeleton rows={4} />
+            ) : (
             <TableContainer>
               <Table>
                 <TableHead>
@@ -349,11 +376,14 @@ export function EvacuationCentersPage() {
                     <TableHeaderCell>Household</TableHeaderCell>
                     <TableHeaderCell>Member</TableHeaderCell>
                     <TableHeaderCell>Status</TableHeaderCell>
-                    <TableHeaderCell>
-                      <button type="button" onClick={() => setEvacueeSortDirection((value) => (value === 'asc' ? 'desc' : 'asc'))}>
-                        Check-In
-                      </button>
-                    </TableHeaderCell>
+                    <SortableHeader
+                      sortKey="checkIn"
+                      currentSort="checkIn"
+                      currentDir={evacueeSortDirection}
+                      onSort={(_, dir) => setEvacueeSortDirection(dir ?? 'asc')}
+                    >
+                      Check-In
+                    </SortableHeader>
                     <TableHeaderCell className="text-right">Actions</TableHeaderCell>
                   </tr>
                 </TableHead>
@@ -378,9 +408,14 @@ export function EvacuationCentersPage() {
                 </TableBody>
               </Table>
             </TableContainer>
-            {!evacueesQuery.isLoading && (evacueesQuery.data ?? []).length === 0 ? (
-              <p className="mt-3 text-sm text-muted-foreground">No evacuees recorded for this center.</p>
-            ) : null}
+            )}
+            {!evacueesQuery.isLoading && (evacueesQuery.data ?? []).length === 0 && (
+              <EmptyState
+                icon={Users}
+                title="No evacuees recorded"
+                description="No evacuees have been checked into this center yet."
+              />
+            )}
             <div className="mt-3">
               <DataTablePagination
                 page={evacueePage}

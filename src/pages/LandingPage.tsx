@@ -91,10 +91,16 @@ export function LandingPage() {
 
         {/* Hero */}
         <section className="flex min-h-[60vh] flex-col justify-center gap-6 pb-10">
-          <div className="flex items-center gap-3">
-            <img src={brandLogo} alt="ResQnnect logo" className="h-14 w-auto" />
+          <div className="flex items-center gap-3 animate-fade-in">
+            <img src={brandLogo} alt="ResQnnect logo" className="h-14 w-auto drop-shadow-md" />
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary">Barbaza Emergency Platform</p>
+              <div className="inline-flex items-center gap-2 mb-2">
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary">Barbaza Emergency Platform</p>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-xs font-medium text-emerald-800">Live</span>
+                </span>
+              </div>
               <h1 className="font-display text-4xl font-bold leading-tight text-foreground sm:text-5xl">ResQnnect</h1>
             </div>
           </div>
@@ -109,8 +115,8 @@ export function LandingPage() {
             <Link to="/login" className={buttonVariants({ variant: 'outline', size: 'lg' })}>
               Sign In
             </Link>
-            <div className="flex items-center gap-2 rounded-full border border-border bg-card/80 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur">
-              <Radio className="h-3 w-3 text-emerald-500" />
+            <div className="flex items-center gap-2 rounded-full border border-border bg-card/80 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur hover:bg-card transition-colors">
+              <Radio className="h-3 w-3 text-emerald-500 animate-pulse" />
               Real-time operations
             </div>
           </div>
@@ -126,9 +132,9 @@ export function LandingPage() {
             {features.map((feature) => {
               const Icon = feature.icon;
               return (
-                <Card key={feature.title} className="border-border/70 bg-card/90 shadow-sm backdrop-blur transition-shadow hover:shadow-md">
+                <Card key={feature.title} className="border-border/70 bg-card/90 shadow-sm backdrop-blur transition-all hover:shadow-lg hover:-translate-y-1 duration-300 cursor-default group">
                   <CardContent className="p-4">
-                    <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                    <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
                       <Icon className="h-4 w-4 text-primary" />
                     </div>
                     <h3 className="mb-1 text-sm font-semibold text-foreground">{feature.title}</h3>
@@ -148,12 +154,12 @@ export function LandingPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {roles.map((role) => (
-              <Card key={role.label} className="border-border/70 bg-card/90 shadow-sm backdrop-blur">
+              <Card key={role.label} className="border-border/70 bg-card/90 shadow-sm backdrop-blur transition-all hover:shadow-md duration-300 group">
                 <CardContent className="p-4">
-                  <Badge className={cn('mb-3 rounded-full text-xs font-semibold', role.color)}>
+                  <Badge className={cn('mb-3 rounded-full text-xs font-semibold group-hover:shadow-sm transition-shadow', role.color)}>
                     {role.label}
                   </Badge>
-                  <p className="text-xs leading-relaxed text-muted-foreground">{role.description}</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground group-hover:text-foreground/80 transition-colors">{role.description}</p>
                 </CardContent>
               </Card>
             ))}
